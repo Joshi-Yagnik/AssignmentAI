@@ -1,0 +1,129 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base Reset ─────────────────────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-surface text-ink-primary;
+    min-height: 100vh;
+  }
+
+  h1 { @apply text-display font-bold; }
+  h2 { @apply text-headline-md font-semibold; }
+  h3 { @apply text-headline-sm font-semibold; }
+  p  { @apply text-body text-ink-secondary; }
+}
+
+/* ── Component Layer ────────────────────────────────────────────────────── */
+@layer components {
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-semibold
+           rounded-lg px-5 py-2.5 text-label-md transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-offset-2 cursor-pointer;
+  }
+  .btn-primary {
+    @apply btn bg-indigo-gradient text-white shadow-md
+           hover:shadow-card-hover hover:-translate-y-px
+           focus:ring-primary/40 active:translate-y-0;
+  }
+  .btn-secondary {
+    @apply btn bg-primary-50 text-primary-700 border border-primary-200
+           hover:bg-primary-100 focus:ring-primary/30;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-primary-700 border border-primary-700/40
+           hover:bg-primary-50 focus:ring-primary/20;
+  }
+  .btn-danger {
+    @apply btn bg-danger/10 text-danger-text border border-danger/20
+           hover:bg-danger/20 focus:ring-danger/30;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs rounded-md;
+  }
+  .btn-icon {
+    @apply p-2 rounded-lg text-ink-secondary hover:text-ink-primary
+           hover:bg-surface-container transition-colors;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-white rounded-xl shadow-card border border-border/50 p-6;
+  }
+  .card-hover {
+    @apply card hover:shadow-card-hover hover:-translate-y-0.5
+           hover:border-primary-200 transition-all duration-200;
+  }
+
+  /* Form inputs */
+  .input {
+    @apply w-full rounded-md border border-border bg-white px-4 py-2.5
+           text-body text-ink-primary placeholder:text-ink-disabled
+           transition-all duration-150
+           focus:outline-none focus:border-primary focus:shadow-input-focus;
+  }
+  .input-icon {
+    @apply relative;
+  }
+  .input-icon .input {
+    @apply pl-10;
+  }
+  .input-icon .icon {
+    @apply absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted w-4 h-4;
+  }
+  .label {
+    @apply block text-label-md text-ink-primary mb-1.5;
+  }
+
+  /* Sidebar nav item */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-label-md
+           text-ink-secondary hover:bg-surface-container hover:text-ink-primary
+           transition-all duration-150 cursor-pointer;
+  }
+  .nav-item.active {
+    @apply bg-primary-50 text-primary-700 font-semibold
+           border-l-[3px] border-primary pl-[calc(0.75rem-3px)];
+  }
+
+  /* Table */
+  .data-table { @apply w-full border-collapse; }
+  .data-table th {
+    @apply px-4 py-3 text-left text-label-sm text-ink-muted uppercase
+           tracking-wide border-b border-border bg-surface-low;
+  }
+  .data-table td {
+    @apply px-4 py-3 text-label-md text-ink-primary border-b border-border/50;
+  }
+  .data-table tr:hover td { @apply bg-primary-50/30; }
+  .data-table tr:last-child td { @apply border-0; }
+
+  /* Divider */
+  .divider { @apply border-t border-border; }
+}
+
+/* ── Utilities ──────────────────────────────────────────────────────────── */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #C7D2FE transparent;
+  }
+  .glass {
+    backdrop-filter: blur(12px) saturate(180%);
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+}
