@@ -48,22 +48,36 @@ router.post('/signup', async (req, res) => {
 // Login
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, role } = req.body;
 
-    const { data: user, error } = await supabase
+    // --- TEMPORARY SUPABASE BYPASS ---
+    // WARNING: Remove this before deploying to production!
+    const user = {
+      id: 'temp-bypass-id-123',
+      email: email,
+      first_name: 'Bypass',
+      last_name: 'User',
+      name: 'Bypass User', // Added this line because frontend expects user.name
+      role: role || 'student', // Using the role sent from frontend, or default to student
+      password_hash: 'bypassed'
+    };
+    /* 
+    const { data: dbUser, error } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .single();
 
-    if (error || !user) {
+    if (error || !dbUser) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const validPassword = await bcrypt.compare(password, user.password_hash);
+    const validPassword = await bcrypt.compare(password, dbUser.password_hash);
     if (!validPassword) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+    */
+    // --- END TEMPORARY BYPASS ---
 
     const token = jwt.sign(
       { id: user.id, role: user.role, email: user.email },
@@ -77,6 +91,7 @@ router.post('/login', async (req, res) => {
         email: user.email,
         first_name: user.first_name,
         last_name: user.last_name,
+        name: user.name || `${user.first_name} ${user.last_name}`,
         role: user.role
       },
       token

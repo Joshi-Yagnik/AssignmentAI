@@ -14,23 +14,38 @@ const MIN_TEXT_LENGTH = 50; // below this threshold, assume scanned PDF → run 
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Download a file from a URL and return it as a Buffer.
+ * Download a file from Supabase Storage and return it as a Buffer.
  */
-async function downloadBuffer(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to download ${url} — HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+async function downloadBuffer(bucket, path) {
+  // If it's a full URL (legacy/public), fallback to fetch
+  if (path.startsWith('http')) {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(`Failed to fetch ${path}`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+
+  // Otherwise, use the internal path with Supabase Admin SDK (bypasses RLS for private buckets)
+  const { data, error } = await supabaseAdmin.storage
+    .from(bucket)
+    .download(path);
+    
+  if (error) throw new Error(`Supabase storage download failed for ${path}: ${error.message}`);
+  return Buffer.from(await data.arrayBuffer());
 }
 
 /**
- * Extract plain text from a PDF buffer.
+ * Extract plain text from a buffer. Supports .txt and .pdf files.
  * Falls back to Tesseract OCR when the PDF is image-only (scanned).
  */
-async function extractText(pdfBuffer) {
+async function extractText(buffer, filename) {
   let text = '';
+  
+  if (filename && filename.toLowerCase().endsWith('.txt')) {
+    return buffer.toString('utf-8').trim();
+  }
 
   try {
-    const parsed = await pdfParse(pdfBuffer);
+    const parsed = await pdfParse(buffer);
     text = (parsed.text || '').trim();
   } catch (err) {
     console.warn('[GradingWorker] pdf-parse failed, will try OCR:', err.message);
@@ -45,7 +60,7 @@ async function extractText(pdfBuffer) {
   const tesseract = await createTesseractWorker('eng');
   try {
     // Tesseract can read PDFs directly in its Node.js binding
-    const { data } = await tesseract.recognize(pdfBuffer);
+    const { data } = await tesseract.recognize(buffer);
     text = (data.text || '').trim();
   } finally {
     await tesseract.terminate();
@@ -157,7 +172,7 @@ async function processGradingJob(job) {
   // ── 1. Fetch submission + assignment ──────────────────────────────────────
   const { data: submission, error: subErr } = await supabaseAdmin
     .from('submissions')
-    .select('*, assignments(title, max_marks, ai_strictness, answer_key_url, description)')
+    .select('*, assignments(title, max_marks, ai_strictness, answer_key_pdf_url, description)')
     .eq('id', submissionId)
     .single();
 
@@ -171,33 +186,33 @@ async function processGradingJob(job) {
     throw new Error(`Submission ${submissionId} has no file_url`);
   }
 
-  if (!assignment.answer_key_url) {
+  if (!assignment.answer_key_pdf_url) {
     // Fallback: use the assignment description as the answer key
-    console.warn('[GradingWorker] No answer_key_url — using assignment description as key');
+    console.warn('[GradingWorker] No answer_key_pdf_url — using assignment description as key');
   }
 
   await job.updateProgress(15);
 
   // ── 2. Download PDFs ──────────────────────────────────────────────────────
   console.log('[GradingWorker] Downloading submission PDF...');
-  const submissionBuffer = await downloadBuffer(submission.file_url);
+  const submissionBuffer = await downloadBuffer('submissions', submission.file_url);
 
   let answerKeyBuffer = null;
-  if (assignment.answer_key_url) {
+  if (assignment.answer_key_pdf_url) { 
     console.log('[GradingWorker] Downloading answer key PDF...');
-    answerKeyBuffer = await downloadBuffer(assignment.answer_key_url);
+    answerKeyBuffer = await downloadBuffer('answer-keys', assignment.answer_key_pdf_url);
   }
 
   await job.updateProgress(30);
 
   // ── 3. Extract text (with OCR fallback) ───────────────────────────────────
   console.log('[GradingWorker] Extracting text from submission...');
-  const submissionText = await extractText(submissionBuffer);
+  const submissionText = await extractText(submissionBuffer, submission.file_url);
 
   let answerKeyText = '';
   if (answerKeyBuffer) {
     console.log('[GradingWorker] Extracting text from answer key...');
-    answerKeyText = await extractText(answerKeyBuffer);
+    answerKeyText = await extractText(answerKeyBuffer, assignment.answer_key_pdf_url);
   } else {
     answerKeyText = assignment.description || 'No answer key provided. Grade based on general academic standards.';
   }

@@ -9,6 +9,8 @@ import LoginPage from '../pages/auth/LoginPage';
 // Student
 import StudentDashboard from '../pages/student/StudentDashboard';
 import VivaExamPage     from '../pages/student/VivaExamPage';
+import StudentAssignmentsPage from '../pages/student/StudentAssignmentsPage';
+import StudentSubmissionPage from '../pages/student/StudentSubmissionPage';
 
 // Teacher
 import TeacherDashboard    from '../pages/teacher/TeacherDashboard';
@@ -17,7 +19,12 @@ import StudentRequestsPage  from '../pages/teacher/StudentRequestsPage';
 import ReviewWorkPage       from '../pages/teacher/ReviewWorkPage';
 
 // Admin
-import AdminDashboard from '../pages/admin/AdminDashboard';
+import AdminDashboard   from '../pages/admin/AdminDashboard';
+import InstitutesPage  from '../pages/admin/InstitutesPage';
+import DepartmentsPage from '../pages/admin/DepartmentsPage';
+import SubjectsPage    from '../pages/admin/SubjectsPage';
+import UsersPage       from '../pages/admin/UsersPage';
+import AssignmentsPage from '../pages/admin/AssignmentsPage';
 
 // ── Placeholder ───────────────────────────────────────────────────────────────
 const Placeholder = ({ title }) => (
@@ -93,7 +100,8 @@ export default function AppRouter() {
             }
           >
             <Route index              element={<StudentDashboard />} />
-            <Route path="assignments" element={<Placeholder title="My Assignments" />} />
+            <Route path="assignments" element={<StudentAssignmentsPage />} />
+            <Route path="submit/:assignmentId" element={<StudentSubmissionPage />} />
             <Route path="ai-grading"  element={<Placeholder title="AI Grading" />} />
             <Route path="viva"        element={<VivaExamPage />} />
             <Route path="grades"      element={<Placeholder title="Grades & Reports" />} />
@@ -127,14 +135,17 @@ export default function AppRouter() {
               </ProtectedRoute>
             }
           >
-            <Route index              element={<AdminDashboard />} />
-            <Route path="users"       element={<Placeholder title="Users & Roles" />} />
-            <Route path="courses"     element={<Placeholder title="Courses & Assignments" />} />
-            <Route path="ai-engine"   element={<Placeholder title="AI Engine" />} />
-            <Route path="viva"        element={<Placeholder title="Viva Control" />} />
-            <Route path="reports"     element={<Placeholder title="Reports & Analytics" />} />
-            <Route path="security"    element={<Placeholder title="Security" />} />
-            <Route path="settings"    element={<Placeholder title="Settings" />} />
+            <Route index                element={<AdminDashboard />} />
+            <Route path="institutes"    element={<InstitutesPage />} />
+            <Route path="departments"   element={<DepartmentsPage />} />
+            <Route path="subjects"      element={<SubjectsPage />} />
+            <Route path="users"         element={<UsersPage />} />
+            <Route path="courses"       element={<AssignmentsPage />} />
+            <Route path="ai-engine"     element={<Placeholder title="AI Engine" />} />
+            <Route path="viva"          element={<Placeholder title="Viva Control" />} />
+            <Route path="reports"       element={<Placeholder title="Reports & Analytics" />} />
+            <Route path="security"      element={<Placeholder title="Security" />} />
+            <Route path="settings"      element={<Placeholder title="Settings" />} />
           </Route>
 
           {/* 404 */}

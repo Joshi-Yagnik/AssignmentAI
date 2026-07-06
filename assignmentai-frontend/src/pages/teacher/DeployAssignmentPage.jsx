@@ -1,15 +1,23 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
-import { Upload, Lock, Info, Bot, Video, Shield, Save, Send } from 'lucide-react';
+import {
+  Upload, Lock, Info, Bot, Video, Shield, Save, Send,
+  FileText, X, CheckCircle2, Loader2, ExternalLink,
+  BookOpen, Calendar
+} from 'lucide-react';
+import {
+  getUploadUrl, uploadFileToStorage, createAssignment, getDownloadUrl
+} from '../../services/assignmentService';
+import { getSubjects } from '../../services/adminService';
+import { useEffect } from 'react';
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function ToggleSwitch({ checked, onChange, id, ariaLabel }) {
   return (
     <button
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      id={id}
+      role="switch" aria-checked={checked} aria-label={ariaLabel} id={id}
       onClick={() => onChange(!checked)}
       className={`w-10 h-5 rounded-full transition-colors flex items-center px-0.5 shrink-0
         ${checked ? 'bg-primary' : 'bg-surface-high'} focus:outline-none focus:ring-2 focus:ring-primary/40`}
@@ -28,60 +36,216 @@ function SectionLabel({ children }) {
   );
 }
 
+// ── PDF Upload Box ─────────────────────────────────────────────────────────────
+function PdfUploadBox({ label, badge, badgeColor, hint, accept, file, uploading, progress, uploaded, uploadedUrl, onFileSelect, onClear, restricted }) {
+  const inputRef = useRef(null);
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const f = e.dataTransfer.files[0];
+    if (f) onFileSelect(f);
+  };
+
+  const handleView = async (pathUrl, bucket) => {
+    try {
+      const { signedUrl } = await getDownloadUrl({ bucket, path: pathUrl });
+      window.open(signedUrl, '_blank');
+    } catch {
+      toast({ type: 'error', title: 'Failed to generate view link' });
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <label className="label mb-0">{label}</label>
+        {badge && (
+          <span className={`flex items-center gap-1.5 text-label-sm font-semibold px-2.5 py-0.5 rounded-full border ${badgeColor}`}>
+            <Lock className="w-3 h-3" /> {badge}
+          </span>
+        )}
+      </div>
+
+      {/* Uploaded state */}
+      {uploaded && uploadedUrl ? (
+        <div className={`flex items-center justify-between p-4 rounded-xl border ${restricted ? 'bg-primary-50/40 border-primary/30' : 'bg-success/5 border-success/30'}`}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center shadow-sm shrink-0">
+              <FileText className={`w-5 h-5 ${restricted ? 'text-primary' : 'text-success'}`} />
+            </div>
+            <div>
+              <p className="font-semibold text-ink-primary text-sm truncate max-w-[200px]">{file?.name}</p>
+              <p className="text-label-sm text-ink-muted">{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : ''} · Uploaded ✓</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => handleView(uploadedUrl, restricted ? 'answer-keys' : 'question-papers')} className="btn btn-ghost btn-sm" title="Preview">
+              <ExternalLink className="w-4 h-4" />
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm text-danger hover:bg-danger/10" onClick={onClear} title="Remove">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      ) : uploading ? (
+        /* Uploading progress */
+        <div className={`p-6 rounded-xl border ${restricted ? 'bg-primary-50/30 border-primary/20' : 'bg-surface-low border-border'}`}>
+          <div className="flex items-center gap-3 mb-3">
+            <Loader2 className="w-5 h-5 text-primary animate-spin" />
+            <p className="text-label-md font-medium text-ink-primary">Uploading {file?.name}…</p>
+          </div>
+          <div className="w-full h-2 bg-surface-high rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="text-label-sm text-ink-muted mt-1.5 text-right">{progress}%</p>
+        </div>
+      ) : (
+        /* Drop zone */
+        <div
+          className={`w-full border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all
+            ${restricted
+              ? 'border-primary/30 bg-primary-50/30 hover:border-primary/60 hover:bg-primary-50/60'
+              : 'border-border hover:border-primary/50 hover:bg-primary-50/20'
+            }`}
+          onClick={() => inputRef.current?.click()}
+          onDragOver={e => e.preventDefault()}
+          onDrop={handleDrop}
+        >
+          <input ref={inputRef} type="file" accept={accept || '.pdf'} className="hidden"
+            onChange={e => e.target.files[0] && onFileSelect(e.target.files[0])} />
+          {restricted
+            ? <Lock className="w-8 h-8 text-primary/40 mx-auto mb-2" />
+            : <Upload className="w-8 h-8 text-primary mx-auto mb-2" />
+          }
+          <p className="font-medium text-ink-primary text-sm">
+            Drop PDF here or <span className="text-primary">Browse Files</span>
+          </p>
+          <p className="text-label-sm text-ink-muted mt-1.5">{hint}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function DeployAssignmentPage() {
   const toast = useToast();
-  const [aiGrading, setAiGrading]     = useState(true);
-  const [vivaReq,   setVivaReq]       = useState(false);
-  const [plagCheck, setPlagCheck]     = useState(true);
-  const [strictness, setStrictness]   = useState(50);
-  const [assignTo, setAssignTo]       = useState('class');
-  const [loading, setLoading]         = useState(false);
-  
-  const [form, setForm] = useState({
-    title: '', course: 'CS301', deadline: '', time: '23:59',
-    instructions: '', maxMarks: 100, gradingMode: 'AI + Teacher Review',
-  });
 
+  // Form state
+  const [form, setForm] = useState({
+    title: '', subject_id: '', deadline: '', time: '23:59',
+    instructions: '', total_questions: 10, grading_mode: 'ai_teacher',
+  });
   const [errors, setErrors] = useState({});
+
+  // Subjects for dropdown
+  const [subjects, setSubjects] = useState([]);
+  useEffect(() => {
+    getSubjects().then(setSubjects).catch(() => {});
+  }, []);
+
+  // PDF state — Question PDF (student-visible)
+  const [qFile, setQFile]           = useState(null);
+  const [qUploading, setQUploading] = useState(false);
+  const [qProgress, setQProgress]   = useState(0);
+  const [qUrl, setQUrl]             = useState('');
+
+  // PDF state — Answer Key PDF (AI-only, restricted)
+  const [aFile, setAFile]           = useState(null);
+  const [aUploading, setAUploading] = useState(false);
+  const [aProgress, setAProgress]   = useState(0);
+  const [aUrl, setAUrl]             = useState('');
+
+  // AI Config
+  const [aiGrading, setAiGrading] = useState(true);
+  const [vivaReq, setVivaReq]     = useState(false);
+  const [plagCheck, setPlagCheck] = useState(true);
+  const [strictness, setStrictness] = useState(50);
+
+  const [deploying, setDeploying] = useState(false);
 
   const set = (k) => (e) => {
     setForm(f => ({ ...f, [k]: e.target.value }));
-    setErrors(e => ({ ...e, [k]: '' }));
+    setErrors(er => ({ ...er, [k]: '' }));
   };
 
-  const handleDeploy = (e) => {
-    e.preventDefault();
-    const newErrors = {};
-    if (!form.title.trim()) newErrors.title = 'Title is required';
-    if (!form.deadline) newErrors.deadline = 'Deadline is required';
+  // ── Upload a PDF to Supabase Storage ───────────────────────────────────────
+  const handleUpload = useCallback(async (file, bucket, setUploading, setProgress, setUrl) => {
+    setUploading(true);
+    setProgress(0);
+    try {
+      // 1. Get signed upload URL from backend
+      const { signedUrl, path } = await getUploadUrl({
+        bucket,
+        filename: `${Date.now()}_${file.name}`,
+        contentType: file.type || 'application/pdf',
+      });
 
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      toast({ type: 'warning', title: 'Missing fields', message: 'Please complete all required fields.' });
-      return;
+      // 2. Upload directly to Supabase Storage
+      await uploadFileToStorage(signedUrl, file, setProgress);
+
+      setUrl(path);
+      toast({ type: 'success', title: 'PDF uploaded successfully!' });
+    } catch (err) {
+      toast({ type: 'error', title: err.message || 'Upload failed' });
+    } finally {
+      setUploading(false);
+    }
+  }, [toast]);
+
+  // ── Deploy Assignment ──────────────────────────────────────────────────────
+  const handleDeploy = async (e) => {
+    e.preventDefault();
+    const errs = {};
+    if (!form.title.trim())    errs.title    = 'Title is required';
+    if (!form.subject_id)      errs.subject_id = 'Subject is required';
+    if (!form.deadline)        errs.deadline = 'Deadline is required';
+
+    if (Object.keys(errs).length > 0) {
+      setErrors(errs);
+      return toast({ type: 'warning', title: 'Fix required fields' });
     }
 
-    setLoading(true);
-    // Simulate API delay
-    setTimeout(() => {
-      setLoading(false);
+    setDeploying(true);
+    try {
+      const deadline = new Date(`${form.deadline}T${form.time || '23:59'}`).toISOString();
+      await createAssignment({
+        title:              form.title,
+        instructions:       form.instructions,
+        deadline,
+        total_questions:    Number(form.total_questions),
+        subject_id:         form.subject_id,
+        question_pdf_url:   qUrl || null,
+        answer_key_pdf_url: aUrl || null,
+        grading_mode:       form.grading_mode,
+        ai_strictness:      strictness,
+        require_viva:       vivaReq,
+        plagiarism_check:   plagCheck,
+      });
       toast({ type: 'success', title: 'Assignment Deployed!', message: `"${form.title}" is now live for students.` });
-    }, 1500);
+      // Reset
+      setForm({ title: '', subject_id: '', deadline: '', time: '23:59', instructions: '', total_questions: 10, grading_mode: 'ai_teacher' });
+      setQFile(null); setQUrl(''); setAFile(null); setAUrl('');
+    } catch (err) {
+      toast({ type: 'error', title: err.message || 'Deploy failed' });
+    } finally {
+      setDeploying(false);
+    }
   };
 
   return (
     <form onSubmit={handleDeploy}>
       <TopBar
         title="Deploy Assignment"
-        subtitle="Create and publish a new assignment for your class"
-        breadcrumb={['Assignments', 'Deploy New Assignment']}
+        subtitle="Create and publish a new assignment with PDF question papers"
         actions={
           <div className="flex items-center gap-2">
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => toast({ type: 'info', title: 'Cancelled.' })}>
-              Cancel
-            </button>
-            <button type="submit" className="btn-primary btn-sm" disabled={loading}>
-              {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send className="w-4 h-4" />}
+            <button type="button" className="btn btn-ghost btn-sm">Cancel</button>
+            <button type="submit" className="btn-primary btn-sm flex items-center gap-2" disabled={deploying}>
+              {deploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               <span className="hidden sm:inline">Deploy Assignment</span>
             </button>
           </div>
@@ -91,157 +255,129 @@ export default function DeployAssignmentPage() {
       <main className="p-4 md:p-6 pb-24">
         <div className="max-w-3xl mx-auto flex flex-col gap-6">
 
-          {/* Section 1: Assignment Details */}
+          {/* ── Section 1: Details ─────────────────────────────────────── */}
           <div className="card flex flex-col gap-5">
             <SectionLabel>Assignment Details</SectionLabel>
 
             <div>
-              <label htmlFor="title" className="label">Assignment Title <span className="text-danger">*</span></label>
-              <input 
-                id="title"
-                className={`input ${errors.title ? 'border-danger focus:border-danger ring-danger/20' : ''}`} 
-                value={form.title} onChange={set('title')} 
-                placeholder="e.g. Machine Learning Midterm Report" 
-                aria-invalid={!!errors.title}
+              <label className="label">Title <span className="text-danger">*</span></label>
+              <input
+                className={`input ${errors.title ? 'border-danger' : ''}`}
+                placeholder="e.g. Unit 2 — Data Structures Mid-term"
+                value={form.title} onChange={set('title')}
               />
-              {errors.title && <p className="text-label-sm text-danger mt-1.5">{errors.title}</p>}
+              {errors.title && <p className="text-label-sm text-danger mt-1">{errors.title}</p>}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="course" className="label">Course</label>
-                <select id="course" className="input" value={form.course} onChange={set('course')}>
-                  <option value="CS301">CS301 — Machine Learning</option>
-                  <option value="CS201">CS201 — Data Structures</option>
-                  <option value="CS401">CS401 — Databases</option>
-                  <option value="CS501">CS501 — Web Development</option>
+                <label className="label">Subject <span className="text-danger">*</span></label>
+                <select className={`input ${errors.subject_id ? 'border-danger' : ''}`} value={form.subject_id} onChange={set('subject_id')}>
+                  <option value="">Select subject…</option>
+                  {subjects.map(s => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
+                  ))}
                 </select>
+                {errors.subject_id && <p className="text-label-sm text-danger mt-1">{errors.subject_id}</p>}
               </div>
               <div>
-                <label htmlFor="gradingMode" className="label">Grading Mode</label>
-                <select id="gradingMode" className="input" value={form.gradingMode} onChange={set('gradingMode')}>
-                  <option>AI + Teacher Review</option>
-                  <option>AI Only</option>
-                  <option>Teacher Only</option>
-                </select>
+                <label className="label">Total Questions</label>
+                <input type="number" min={1} max={200} className="input"
+                  value={form.total_questions} onChange={set('total_questions')} />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="deadline" className="label">Deadline Date <span className="text-danger">*</span></label>
-                <div className="relative">
-                  <input 
-                    id="deadline"
-                    type="date" 
-                    className={`input ${errors.deadline ? 'border-danger focus:border-danger ring-danger/20' : ''}`} 
-                    value={form.deadline} onChange={set('deadline')} 
-                    aria-invalid={!!errors.deadline}
-                  />
-                  {errors.deadline && <p className="text-label-sm text-danger mt-1.5">{errors.deadline}</p>}
-                </div>
+                <label className="label">Deadline Date <span className="text-danger">*</span></label>
+                <input type="date" className={`input ${errors.deadline ? 'border-danger' : ''}`}
+                  value={form.deadline} onChange={set('deadline')} />
+                {errors.deadline && <p className="text-label-sm text-danger mt-1">{errors.deadline}</p>}
               </div>
               <div>
-                <label htmlFor="time" className="label">Deadline Time</label>
-                <input id="time" type="time" className="input" value={form.time} onChange={set('time')} />
+                <label className="label">Deadline Time</label>
+                <input type="time" className="input" value={form.time} onChange={set('time')} />
               </div>
             </div>
 
             <div>
-              <label htmlFor="instructions" className="label">Instructions / Description</label>
-              <textarea 
-                id="instructions"
-                className="input resize-none" rows={5} value={form.instructions} onChange={set('instructions')}
-                placeholder="Write detailed instructions for students…" 
-              />
+              <label className="label">Instructions</label>
+              <textarea className="input resize-none" rows={4}
+                placeholder="Write detailed instructions for students…"
+                value={form.instructions} onChange={set('instructions')} />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="maxMarks" className="label">Max Marks</label>
-                <input id="maxMarks" type="number" className="input" value={form.maxMarks} onChange={set('maxMarks')} min={1} max={200} />
-              </div>
-            </div>
-          </div>
-
-          {/* Section 2: Upload Boxes */}
-          <div className="card flex flex-col gap-5">
-            <SectionLabel>Submission Settings</SectionLabel>
-
-            {/* Box 1 — Student template */}
             <div>
-              <label className="label">Student Submission Template</label>
-              <button type="button" className="w-full border-2 border-dashed border-border rounded-xl p-8 text-center
-                             hover:border-primary/50 hover:bg-primary-50/50 transition-all focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10">
-                <Upload className="w-8 h-8 text-primary mx-auto mb-2" aria-hidden="true" />
-                <p className="font-medium text-ink-primary text-sm">Drop file here or <span className="text-primary">Browse Files</span></p>
-                <p className="text-label-sm text-ink-muted mt-1.5">Accepted: PDF, DOCX, ZIP · Visible to students</p>
-              </button>
-            </div>
-
-            {/* Box 2 — AI-only (restricted) */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="label mb-0">AI Reference Material</label>
-                <div className="flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-primary-700" aria-hidden="true" />
-                  <span className="text-label-sm font-semibold text-primary-700 bg-primary-50 px-2.5 py-0.5 rounded-full border border-primary-200">
-                    AI-Only
-                  </span>
-                  <button type="button" className="ml-1 text-ink-muted hover:text-ink-primary focus:outline-none focus:ring-2 focus:ring-primary/40 rounded-full" title="This file is never shown to students" aria-label="Information about AI Reference Material">
-                    <Info className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-              <button type="button" className="w-full border-2 border-dashed border-primary/30 bg-primary-50/40 rounded-xl p-8 text-center
-                             hover:border-primary/60 hover:bg-primary-50/80 transition-all focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10">
-                <Lock className="w-8 h-8 text-primary-400 mx-auto mb-2" aria-hidden="true" />
-                <p className="font-medium text-ink-primary text-sm">
-                  Drop AI reference file or <span className="text-primary">Browse Files (Restricted)</span>
-                </p>
-                <p className="text-label-sm text-ink-muted mt-1.5">
-                  Hidden from students — used only by the AI grading engine for context & answer key
-                </p>
-                <p className="text-label-sm text-ink-muted mt-1">Accepted: PDF, DOCX</p>
-              </button>
+              <label className="label">Grading Mode</label>
+              <select className="input" value={form.grading_mode} onChange={set('grading_mode')}>
+                <option value="ai_teacher">AI + Teacher Review</option>
+                <option value="ai_only">AI Only</option>
+                <option value="teacher_only">Teacher Only</option>
+              </select>
             </div>
           </div>
 
-          {/* Section 3: Target */}
-          <div className="card flex flex-col gap-4">
-            <SectionLabel>Target Students</SectionLabel>
-            <div className="flex items-center gap-2" role="group" aria-label="Select target students">
-              {['class', 'select'].map(v => (
-                <button
-                  type="button"
-                  key={v}
-                  onClick={() => setAssignTo(v)}
-                  className={`btn btn-sm ${assignTo === v ? 'btn-primary' : 'btn-secondary'}`}
-                  aria-pressed={assignTo === v}
-                >
-                  {v === 'class' ? 'Entire Class' : 'Select Students'}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-label-sm px-3 py-1.5 rounded-full bg-primary-50 text-primary-700 font-medium border border-primary-100">
-                CS301 — 32 students enrolled
-              </span>
+          {/* ── Section 2: PDF Uploads ─────────────────────────────────── */}
+          <div className="card flex flex-col gap-6">
+            <SectionLabel>PDF Attachments</SectionLabel>
+
+            {/* Question Paper PDF — Student-visible */}
+            <PdfUploadBox
+              label="Question Paper PDF"
+              hint="Visible to students after deployment · PDF only · Max 20MB"
+              file={qFile}
+              uploading={qUploading}
+              progress={qProgress}
+              uploaded={!!qUrl}
+              uploadedUrl={qUrl}
+              restricted={false}
+              onFileSelect={(f) => {
+                setQFile(f);
+                handleUpload(f, 'question-papers', setQUploading, setQProgress, setQUrl);
+              }}
+              onClear={() => { setQFile(null); setQUrl(''); }}
+            />
+
+            {/* Answer Key PDF — AI-Only, restricted */}
+            <PdfUploadBox
+              label="Answer Key PDF"
+              badge="AI-Only · Hidden from Students"
+              badgeColor="text-primary-700 bg-primary-50 border-primary-200"
+              hint="Used only by the AI grading engine · Never shown to students · PDF only"
+              file={aFile}
+              uploading={aUploading}
+              progress={aProgress}
+              uploaded={!!aUrl}
+              uploadedUrl={aUrl}
+              restricted={true}
+              onFileSelect={(f) => {
+                setAFile(f);
+                handleUpload(f, 'answer-keys', setAUploading, setAProgress, setAUrl);
+              }}
+              onClear={() => { setAFile(null); setAUrl(''); }}
+            />
+
+            {/* Info callout */}
+            <div className="flex items-start gap-3 p-4 bg-surface-low border border-border rounded-xl">
+              <Info className="w-4 h-4 text-ink-muted shrink-0 mt-0.5" />
+              <p className="text-label-sm text-ink-secondary">
+                PDFs are uploaded directly to Supabase Storage. The Answer Key is stored in a <strong>private bucket</strong> — only the AI grading engine can access it using a service-role key. Students will never see the URL.
+              </p>
             </div>
           </div>
 
-          {/* Section 4: AI Config */}
+          {/* ── Section 3: AI Config ───────────────────────────────────── */}
           <div className="card flex flex-col gap-4">
             <SectionLabel>AI Grading Configuration</SectionLabel>
 
             {[
-              { icon: Bot,    label: 'Enable AI Auto-Grading', val: aiGrading, set: setAiGrading, id: 'ai-grading' },
-              { icon: Video,  label: 'Require Viva Examination', val: vivaReq,  set: setVivaReq,   id: 'viva-req'  },
-              { icon: Shield, label: 'Plagiarism Detection',    val: plagCheck, set: setPlagCheck,  id: 'plag'      },
+              { icon: Bot,    label: 'Enable AI Auto-Grading',  val: aiGrading, set: setAiGrading, id: 'ai-grading' },
+              { icon: Video,  label: 'Require Viva Examination', val: vivaReq,   set: setVivaReq,   id: 'viva-req'  },
+              { icon: Shield, label: 'Plagiarism Detection',     val: plagCheck,  set: setPlagCheck,  id: 'plag'      },
             ].map(({ icon: Icon, label, val, set: setVal, id }) => (
               <div key={id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                 <label htmlFor={id} className="flex items-center gap-2.5 text-label-md text-ink-primary cursor-pointer">
-                  <Icon className="w-4 h-4 text-primary" aria-hidden="true" />{label}
+                  <Icon className="w-4 h-4 text-primary" /> {label}
                 </label>
                 <ToggleSwitch checked={val} onChange={setVal} id={id} ariaLabel={label} />
               </div>
@@ -249,39 +385,41 @@ export default function DeployAssignmentPage() {
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label htmlFor="strictness" className="label mb-0">AI Strictness Level</label>
+                <label className="label mb-0">AI Strictness Level</label>
                 <span className="text-label-sm text-primary font-semibold">{strictness}%</span>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-label-sm text-ink-muted w-14">Lenient</span>
-                <input
-                  id="strictness"
-                  type="range" min={0} max={100}
-                  value={strictness}
+                <input type="range" min={0} max={100} value={strictness}
                   onChange={e => setStrictness(Number(e.target.value))}
-                  className="flex-1 accent-primary focus:outline-none focus:ring-2 focus:ring-primary/40 rounded-full"
-                  aria-label="AI Strictness Level"
-                />
+                  className="flex-1 accent-primary" />
                 <span className="text-label-sm text-ink-muted w-10">Strict</span>
               </div>
             </div>
           </div>
+
         </div>
       </main>
 
       {/* Sticky bottom bar */}
       <div className="fixed bottom-0 left-0 md:left-60 right-0 bg-white border-t border-border px-4 md:px-6 py-3
-                      flex items-center justify-end gap-3 shadow-[0_-4px_16px_rgba(0,0,0,0.05)] z-20">
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => toast({ type: 'info', title: 'Cancelled.' })}>
-          Cancel
-        </button>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => toast({ type: 'info', title: 'Saved as draft.' })}>
-          <Save className="w-4 h-4" aria-hidden="true" /> <span className="hidden sm:inline">Save as Draft</span>
-        </button>
-        <button type="submit" className="btn-primary btn-sm" disabled={loading}>
-          {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send className="w-4 h-4" aria-hidden="true" />}
-          <span className="hidden sm:inline">Deploy Assignment</span>
-        </button>
+                      flex items-center justify-between gap-3 shadow-[0_-4px_16px_rgba(0,0,0,0.05)] z-20">
+        <div className="flex items-center gap-2 text-label-sm text-ink-muted">
+          {qUrl && <span className="flex items-center gap-1 text-success"><CheckCircle2 className="w-4 h-4" /> Q-Paper</span>}
+          {aUrl && <span className="flex items-center gap-1 text-success"><CheckCircle2 className="w-4 h-4" /> Answer Key</span>}
+          {(qUploading || aUploading) && <span className="flex items-center gap-1 text-primary"><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" className="btn btn-ghost btn-sm">Cancel</button>
+          <button type="button" className="btn btn-secondary btn-sm flex items-center gap-2"
+            onClick={() => toast({ type: 'info', title: 'Saved as draft.' })}>
+            <Save className="w-4 h-4" /> <span className="hidden sm:inline">Save Draft</span>
+          </button>
+          <button type="submit" className="btn-primary btn-sm flex items-center gap-2" disabled={deploying || qUploading || aUploading}>
+            {deploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            <span className="hidden sm:inline">Deploy Assignment</span>
+          </button>
+        </div>
       </div>
     </form>
   );

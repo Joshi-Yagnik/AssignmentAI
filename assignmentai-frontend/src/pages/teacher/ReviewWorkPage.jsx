@@ -294,6 +294,40 @@ export default function ReviewWorkPage() {
               </div>
             )}
 
+            {/* ─ Viva Integrity ──────────────────────────────────────────── */}
+            {analysis.viva_integrity && (
+              <div className="card border border-warning/30 bg-warning/5">
+                <div className="flex items-center gap-2 mb-3">
+                  <Shield className="w-5 h-5 text-warning" />
+                  <h2 className="text-headline-sm text-warning-text">Viva Integrity Report</h2>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-6">
+                  <div className="flex flex-col items-center">
+                    <ScoreDonut score={analysis.viva_integrity.integrity_score} max={100} size={90} />
+                    <span className="text-label-sm font-semibold mt-2">Integrity Score</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-label-md text-ink-primary mb-2 font-semibold">AI Rationale</p>
+                    <p className="text-label-sm text-ink-secondary leading-relaxed mb-3">
+                      {analysis.viva_integrity.rationale}
+                    </p>
+                    {analysis.viva_integrity.warnings > 0 && (
+                      <p className="text-label-sm text-danger font-semibold bg-danger/10 px-2 py-1 rounded w-fit">
+                        <AlertTriangle className="w-3.5 h-3.5 inline mr-1" />
+                        {analysis.viva_integrity.warnings} Security Violations Detected
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <details className="mt-4 border-t border-border/50 pt-3">
+                  <summary className="text-label-sm font-semibold text-ink-primary cursor-pointer select-none">View Full Transcript</summary>
+                  <div className="mt-2 p-3 bg-white rounded border border-border text-xs text-ink-secondary max-h-48 overflow-y-auto">
+                    {analysis.viva_integrity.transcript || "No transcript recorded."}
+                  </div>
+                </details>
+              </div>
+            )}
+
             {/* ─ AI Feedback ──────────────────────────────────────────── */}
             {report.feedback_summary && (
               <div className="card bg-primary-50/60 border border-primary-100">

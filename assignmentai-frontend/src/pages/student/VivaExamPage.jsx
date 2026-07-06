@@ -4,6 +4,12 @@ import { useNavigate } from 'react-router-dom';
 import { Mic, MicOff, Camera as CameraIcon, CameraOff, Shield, AlertTriangle, ChevronRight, ChevronLeft, Lightbulb, Bot } from 'lucide-react';
 import { VIVA_QUESTIONS } from '../../data/mockData';
 import { submitVivaAnswer, endVivaSession } from '../../services/vivaService';
+import * as faceapi from 'face-api.js/dist/face-api.js';
+import io from 'socket.io-client';
+
+const SOCKET_URL = import.meta.env.VITE_API_BASE_URL 
+  ? import.meta.env.VITE_API_BASE_URL.replace('/api', '') 
+  : 'http://localhost:5000';
 
 function SecurityRow({ label, ok, warning }) {
   return (
@@ -39,12 +45,16 @@ export default function VivaExamPage() {
   const [streamError, setStreamError] = useState(false);
 
   // Security / Violations
-  const [warnings, setWarnings] = useState(() => {
-    return parseInt(sessionStorage.getItem('viva_warnings') || '0', 10);
-  });
+  const [warnings, setWarnings] = useState(() => parseInt(sessionStorage.getItem('viva_warnings') || '0', 10));
+  const [faceStatus, setFaceStatus] = useState('Initializing...');
+  const [multipleFaces, setMultipleFaces] = useState(false);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const socketRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const faceIntervalRef = useRef(null);
+  const sessionId = 'viva-session-' + Math.floor(Math.random() * 10000); // Mock session ID
 
   // Timer
   useEffect(() => {
@@ -52,30 +62,106 @@ export default function VivaExamPage() {
     return () => clearInterval(t);
   }, []);
 
-  // Initialize WebRTC Camera & Mic
+  // Violation tracker (Tab switch / Face / Blur)
+  const addWarning = useCallback((type) => {
+    setWarnings(prev => {
+      const nw = prev + 1;
+      sessionStorage.setItem('viva_warnings', nw.toString());
+      if (socketRef.current) {
+        socketRef.current.emit('viva_warning', { sessionId, type, timestamp: new Date() });
+      }
+      
+      if (nw >= 3) {
+        toast({ type: 'error', title: 'Exam Terminated', message: 'Maximum security violations reached. Auto-submitting.' });
+        if (socketRef.current) socketRef.current.emit('end_viva', { sessionId, fullTranscript: answer });
+        setTimeout(() => navigate('/student'), 2000);
+      } else {
+        toast({ type: 'warning', title: 'Security Warning', message: `${type} detected. Warning ${nw}/3.` });
+      }
+      return nw;
+    });
+  }, [toast, navigate, answer]);
+
   useEffect(() => {
-    async function startMedia() {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') addWarning('Tab switch');
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [addWarning]);
+
+  // Sockets & Face API & WebRTC
+  useEffect(() => {
+    // 1. Connect Socket
+    socketRef.current = io(SOCKET_URL);
+    socketRef.current.emit('join_viva', { sessionId });
+
+    // 2. Load Face API Models
+    async function loadModelsAndMedia() {
       try {
+        await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+        setFaceStatus('Models loaded, requesting camera...');
+        
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
         setStreamError(false);
+        setFaceStatus('Face ID: Verified ✓');
       } catch (err) {
-        console.error("Media access denied:", err);
+        console.error("Setup error:", err);
         setStreamError(true);
-        toast({ type: 'error', title: 'Camera/Mic Denied', message: 'Please allow camera and microphone access to proceed.', duration: 6000 });
+        setFaceStatus('Camera access denied or models failed');
+        toast({ type: 'error', title: 'Setup Failed', message: 'Please allow camera and microphone access to proceed.', duration: 6000 });
       }
     }
-    startMedia();
+    loadModelsAndMedia();
+
+    // 3. Setup Speech Recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      
+      recognition.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        if (finalTranscript) {
+          setAnswer(prev => {
+            const nextAns = prev + (prev ? ' ' : '') + finalTranscript;
+            if (socketRef.current) {
+               socketRef.current.emit('viva_transcript_update', { sessionId, transcript: nextAns });
+            }
+            return nextAns;
+          });
+        }
+      };
+      
+      recognition.start();
+      recognitionRef.current = recognition;
+    } else {
+      toast({ type: 'warning', title: 'Speech-to-Text Unsupported', message: 'Your browser does not support Speech Recognition. Please type your answers.' });
+    }
 
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
+      if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
+      if (recognitionRef.current) recognitionRef.current.stop();
+      if (socketRef.current) socketRef.current.disconnect();
+      if (faceIntervalRef.current) clearInterval(faceIntervalRef.current);
     };
-  }, [toast]);
+  }, [toast, sessionId]);
 
   // Handle toggles
   useEffect(() => {
@@ -83,32 +169,29 @@ export default function VivaExamPage() {
       streamRef.current.getAudioTracks().forEach(t => t.enabled = micOn);
       streamRef.current.getVideoTracks().forEach(t => t.enabled = camOn);
     }
+    if (recognitionRef.current) {
+      if (micOn) recognitionRef.current.start().catch(() => {});
+      else recognitionRef.current.stop();
+    }
   }, [micOn, camOn]);
 
-  // Violation tracker (Tab switch / Blur)
-  const addWarning = useCallback(() => {
-    setWarnings(prev => {
-      const nw = prev + 1;
-      sessionStorage.setItem('viva_warnings', nw.toString());
-      if (nw >= 3) {
-        toast({ type: 'error', title: 'Exam Terminated', message: 'Maximum security violations reached. Auto-submitting.' });
-        // Normally endVivaSession would be called here
-        setTimeout(() => navigate('/student'), 2000);
+  // Face Tracking Loop
+  const onVideoPlay = () => {
+    faceIntervalRef.current = setInterval(async () => {
+      if (!videoRef.current || !camOn) return;
+      const detections = await faceapi.detectAllFaces(videoRef.current, new faceapi.TinyFaceDetectorOptions());
+      
+      if (detections.length === 0) {
+        setFaceStatus('Lost');
+      } else if (detections.length > 1) {
+        setMultipleFaces(true);
+        addWarning('Multiple faces detected');
       } else {
-        toast({ type: 'warning', title: 'Security Warning', message: `Tab switch detected. Warning ${nw}/3.` });
+        setFaceStatus('Face ID: Verified ✓');
+        setMultipleFaces(false);
       }
-      return nw;
-    });
-  }, [toast, navigate]);
-
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') addWarning();
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [addWarning]);
-
+    }, 2000);
+  };
 
   const handleNext = async () => {
     setLoading(true);
@@ -123,8 +206,22 @@ export default function VivaExamPage() {
     }
   };
 
-  const handleEnd = () => {
-    toast({ type: 'info', title: 'Exam ended', message: 'Your answers have been saved.' });
+  const handleEnd = async () => {
+    toast({ type: 'info', title: 'Exam ended', message: 'Processing AI integrity check...' });
+    if (socketRef.current) socketRef.current.emit('end_viva', { sessionId, fullTranscript: answer });
+    
+    try {
+      await fetch(`${SOCKET_URL}/api/reports/viva-integrity/test-submission-id`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+        body: JSON.stringify({ vivaTranscript: answer, warnings })
+      });
+      toast({ type: 'success', title: 'Integrity Report Saved' });
+    } catch (err) {
+      console.error(err);
+      toast({ type: 'error', title: 'Failed to save integrity report' });
+    }
+
     navigate('/student');
   };
 
@@ -177,6 +274,7 @@ export default function VivaExamPage() {
               <>
                 <video
                   ref={videoRef}
+                  onPlay={onVideoPlay}
                   autoPlay
                   playsInline
                   muted
@@ -190,9 +288,9 @@ export default function VivaExamPage() {
                    <div className="w-32 h-40 border border-primary-400/50 bg-primary-900/10 rounded-xl" />
                 </div>
                 
-                <div className="absolute top-4 left-4 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm rounded-lg px-2.5 py-1 z-10">
-                  <span className="w-2 h-2 rounded-full bg-success" />
-                  <span className="text-white text-xs font-medium">Face ID: Verified ✓</span>
+                <div className={`absolute top-4 left-4 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm rounded-lg px-2.5 py-1 z-10 ${faceStatus === 'Lost' ? 'border border-danger' : ''}`}>
+                  <span className={`w-2 h-2 rounded-full ${faceStatus === 'Lost' ? 'bg-danger' : 'bg-success'}`} />
+                  <span className={`text-xs font-medium ${faceStatus === 'Lost' ? 'text-danger-100' : 'text-white'}`}>{faceStatus}</span>
                 </div>
                 <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm rounded-lg px-2.5 py-1 z-10">
                   <span className="text-white/80 text-xs">AI Analyzing</span>
@@ -245,7 +343,7 @@ export default function VivaExamPage() {
               </div>
             </div>
             <p className="text-xs text-ink-muted italic truncate px-2 bg-surface-low rounded py-1">
-              Live Transcript: "…the concept of fairness refers to…"
+              Live Transcript streaming...
             </p>
           </div>
         </div>
@@ -327,9 +425,9 @@ export default function VivaExamPage() {
             <h3 className="font-semibold text-ink-primary flex items-center gap-2">
               <Shield className="w-4 h-4 text-primary" aria-hidden="true" /> Exam Security
             </h3>
-            <SecurityRow label="Face Detected"  ok={!streamError} warning={streamError ? 'Lost' : null} />
-            <SecurityRow label="Single Person"  ok />
-            <SecurityRow label="Audio Normal"   ok />
+            <SecurityRow label="Face Detected"  ok={faceStatus !== 'Lost'} warning={faceStatus === 'Lost' ? 'Lost' : null} />
+            <SecurityRow label="Single Person"  ok={!multipleFaces} warning={multipleFaces ? 'Multiple Faces' : null} />
+            <SecurityRow label="Audio Normal"   ok={micOn} warning={!micOn ? 'Muted' : null} />
             
             <div className="pt-2 border-t border-border mt-1">
               <div className="flex items-center justify-between mb-1">
@@ -338,7 +436,7 @@ export default function VivaExamPage() {
               <div className="h-2 bg-surface-high rounded-full overflow-hidden">
                 <div className="h-full bg-warning rounded-full transition-all" style={{ width: `${(warnings/3)*100}%` }} />
               </div>
-              <p className="text-xs text-ink-muted mt-2">Tab switching or looking away increments warnings. 3 warnings = auto termination.</p>
+              <p className="text-xs text-ink-muted mt-2">Tab switching or multiple faces increments warnings. 3 warnings = auto termination.</p>
             </div>
           </div>
 

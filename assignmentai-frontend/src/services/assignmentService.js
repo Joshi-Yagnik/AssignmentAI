@@ -1,60 +1,84 @@
-// ── Assignment Service ────────────────────────────────────────────────────────
-import api from './api';
+import { api } from './api';
 
-/** Student: fetch all assignments for the logged-in student */
-export async function getMyAssignments() {
-  const { data } = await api.get('/assignments/my');
-  return data; // Assignment[]
-}
+// ── STUDENT: Assignments ─────────────────────────────────────────────────────
 
-/** Teacher: fetch all assignments across their courses */
-export async function getAssignments() {
-  const { data } = await api.get('/assignments');
-  return data; // Assignment[]
-}
+/** Fetch all assignments visible to the logged-in student */
+export const getStudentAssignments = () =>
+  api.get('/assignments/student').then(r => r.data);
 
-/** Teacher: fetch courses summary */
-export async function getMyCourses() {
-  const { data } = await api.get('/courses/my');
-  return data; // Course[]
-}
+/** Fetch a single assignment with its details */
+export const getAssignmentById = (id) =>
+  api.get(`/assignments/${id}`).then(r => r.data);
 
-/** Teacher: fetch pending submissions across all courses */
-export async function getPendingSubmissions() {
-  const { data } = await api.get('/submissions/pending');
-  return data; // Submission[]
-}
+// ── TEACHER: Assignments ─────────────────────────────────────────────────────
+
+/** Fetch assignments created by this teacher */
+export const getTeacherAssignments = () =>
+  api.get('/assignments').then(r => r.data);
+
+/** Create a new assignment (JSON payload — PDFs uploaded separately via storage) */
+export const createAssignment = (body) =>
+  api.post('/assignments', body).then(r => r.data);
+
+/** Update assignment */
+export const updateAssignment = (id, body) =>
+  api.put(`/assignments/${id}`, body).then(r => r.data);
+
+/** Delete assignment */
+export const deleteAssignment = (id) =>
+  api.delete(`/assignments/${id}`).then(r => r.data);
+
+// ── STORAGE: PDF Uploads ─────────────────────────────────────────────────────
 
 /**
- * Teacher: create / deploy a new assignment.
- * @param {FormData|object} payload
+ * Get a pre-signed upload URL from the backend.
+ * @param {{ bucket: string, filename: string, contentType: string }} params
  */
-export async function createAssignment(payload) {
-  const isFormData = payload instanceof FormData;
-  const { data } = await api.post('/assignments', payload, {
-    headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : {},
+export const getUploadUrl = (params) =>
+  api.post('/storage/upload-url', params).then(r => r.data);
+
+/**
+ * Upload a file directly to Supabase Storage via a signed URL.
+ * @param {string} signedUrl
+ * @param {File} file
+ * @param {function} onProgress — receives 0-100
+ */
+export async function uploadFileToStorage(signedUrl, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', signedUrl);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onload  = () => xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`));
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.send(file);
   });
-  return data; // created Assignment
 }
 
 /**
- * Student: submit an assignment.
- * @param {string} assignmentId
- * @param {FormData} formData — includes 'file' + optional 'notes'
+ * Get a secure signed download URL for a private file.
+ * @param {{ bucket: string, path: string }} params
  */
-export async function submitAssignment(assignmentId, formData) {
-  const { data } = await api.post(`/assignments/${assignmentId}/submit`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return data;
-}
+export const getDownloadUrl = (params) =>
+  api.post('/storage/download-url', params).then(r => r.data);
+
+// ── SUBMISSIONS ──────────────────────────────────────────────────────────────
 
 /**
- * Teacher: confirm/override AI grade for a submission.
- * @param {string} submissionId
- * @param {{ finalGrade: number, remarks: string, notify: boolean }} payload
+ * Create or update a submission record.
+ * @param {{ assignment_id, file_url, typed_answer, submission_type }} body
  */
-export async function gradeSubmission(submissionId, payload) {
-  const { data } = await api.patch(`/submissions/${submissionId}/grade`, payload);
-  return data;
-}
+export const createSubmission = (body) =>
+  api.post('/submissions', body).then(r => r.data);
+
+/** Get all submissions for the logged-in student */
+export const getMySubmissions = () =>
+  api.get('/submissions/me').then(r => r.data);
+
+/** Get a single submission by ID */
+export const getSubmissionById = (id) =>
+  api.get(`/submissions/${id}`).then(r => r.data);

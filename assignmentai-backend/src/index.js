@@ -1,11 +1,16 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const authRoutes = require('./routes/auth.routes');
 const assignmentRoutes = require('./routes/assignment.routes');
 const submissionRoutes = require('./routes/submission.routes');
 const reportRoutes = require('./routes/report.routes');
+const adminRoutes = require('./routes/admin.routes');
+const usersRoutes = require('./routes/users.routes');
+const storageRoutes = require('./routes/storage.routes');
 
 // Start background grading worker (BullMQ + Redis)
 require('./workers/gradingWorker');
@@ -21,6 +26,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/assignments', assignmentRoutes);
 app.use('/api/submissions', submissionRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/storage', storageRoutes);
+app.use('/api/admin/users', usersRoutes);  // must be before /api/admin
+app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -34,6 +42,18 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*', // For dev, allow all
+    methods: ['GET', 'POST']
+  }
+});
+
+// Pass io to our socket handler
+require('./sockets/vivaSocket')(io);
+
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

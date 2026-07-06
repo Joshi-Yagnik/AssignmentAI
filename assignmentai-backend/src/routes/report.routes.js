@@ -3,6 +3,7 @@ const router = express.Router();
 const supabase = require('../config/supabaseClient');
 const { requireAuth, requireRole } = require('../middleware/auth.middleware');
 const { gradingQueue } = require('../queues/gradingQueue');
+const { compareVivaWithSubmission } = require('../services/grokService');
 
 // GET report by submission ID (full report with breakdown)
 router.get('/submission/:submissionId', requireAuth, async (req, res) => {
@@ -107,6 +108,63 @@ router.post('/', requireAuth, requireRole(['admin', 'teacher']), async (req, res
     await supabase.from('submissions').update({ status: 'graded' }).eq('id', submission_id);
 
     res.status(201).json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// CREATE Viva Integrity Report entry
+router.post('/viva-integrity/:submissionId', requireAuth, async (req, res) => {
+  try {
+    const { submissionId } = req.params;
+    const { vivaTranscript, warnings } = req.body;
+
+    // Fetch the written submission text
+    const { data: submission } = await supabase
+      .from('submissions')
+      .select('file_url')
+      .eq('id', submissionId)
+      .single();
+
+    if (!submission) return res.status(404).json({ error: 'Submission not found' });
+
+    // Mock reading text from file_url for demo.
+    const writtenSubmissionText = "This is a placeholder for the parsed submission text based on " + submission.file_url;
+
+    // Call Grok
+    const integrityResult = await compareVivaWithSubmission(vivaTranscript, writtenSubmissionText);
+    integrityResult.warnings = warnings;
+    integrityResult.transcript = vivaTranscript;
+
+    // Check if report exists
+    const { data: report } = await supabase
+      .from('ai_reports')
+      .select('id, detailed_analysis')
+      .eq('submission_id', submissionId)
+      .single();
+
+    if (report) {
+      const detailed_analysis = report.detailed_analysis || {};
+      detailed_analysis.viva_integrity = integrityResult;
+      
+      await supabase
+        .from('ai_reports')
+        .update({ detailed_analysis })
+        .eq('id', report.id);
+    } else {
+      // Create empty report with just viva info
+      await supabase
+        .from('ai_reports')
+        .insert([{ 
+          submission_id: submissionId, 
+          final_score: 0, 
+          feedback_summary: 'Pending written analysis...', 
+          detailed_analysis: { viva_integrity: integrityResult }
+        }]);
+    }
+
+    res.json({ success: true, integrityResult });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
