@@ -1,0 +1,6 @@
+TrustGrade/
+node_modules/
+.env
+.env.local
+.env.production
+.env.example
