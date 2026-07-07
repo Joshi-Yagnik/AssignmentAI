@@ -1,7 +1,7 @@
 // ── Axios Instance + Interceptors ────────────────────────────────────────────
 import axios from 'axios';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 export const api = axios.create({
   baseURL: BASE_URL,
@@ -39,6 +39,7 @@ api.interceptors.response.use(
 export function getErrorMessage(error) {
   if (error.response?.data?.message) return error.response.data.message;
   if (error.response?.data?.detail)  return error.response.data.detail;
+  if (error.response?.data?.error)   return error.response.data.error;
   if (error.message) return error.message;
   return 'An unexpected error occurred.';
 }

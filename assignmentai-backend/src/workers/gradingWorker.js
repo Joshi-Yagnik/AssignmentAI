@@ -275,23 +275,37 @@ async function processGradingJob(job) {
 // Worker instance
 // ─────────────────────────────────────────────────────────────────────────────
 
-const gradingWorker = new Worker('ai-grading', processGradingJob, {
-  connection: createRedisConnection(),
-  concurrency: 3, // process up to 3 submissions simultaneously
-});
+let gradingWorker = null;
 
-gradingWorker.on('completed', (job, result) => {
-  console.log(`[GradingWorker] ✓ Completed job ${job.id} — score: ${result.finalScore}`);
-});
+try {
+  const redisConnection = createRedisConnection();
 
-gradingWorker.on('failed', (job, err) => {
-  console.error(`[GradingWorker] ✗ Failed job ${job?.id}:`, err.message);
-});
+  // Suppress unhandled 'error' events from ioredis so a Redis outage
+  // doesn't crash the whole Express server.
+  redisConnection.on('error', (err) => {
+    console.warn('[GradingWorker] Redis connection error (worker disabled):', err.message);
+  });
 
-gradingWorker.on('error', (err) => {
-  console.error('[GradingWorker] Worker error:', err);
-});
+  gradingWorker = new Worker('ai-grading', processGradingJob, {
+    connection: redisConnection,
+    concurrency: 3, // process up to 3 submissions simultaneously
+  });
 
-console.log('[GradingWorker] AI grading worker started and listening for jobs...');
+  gradingWorker.on('completed', (job, result) => {
+    console.log(`[GradingWorker] ✓ Completed job ${job.id} — score: ${result.finalScore}`);
+  });
+
+  gradingWorker.on('failed', (job, err) => {
+    console.error(`[GradingWorker] ✗ Failed job ${job?.id}:`, err.message);
+  });
+
+  gradingWorker.on('error', (err) => {
+    console.error('[GradingWorker] Worker error:', err.message);
+  });
+
+  console.log('[GradingWorker] AI grading worker started and listening for jobs...');
+} catch (err) {
+  console.warn('[GradingWorker] Failed to start (Redis unavailable?). AI grading is disabled.', err.message);
+}
 
 module.exports = gradingWorker;

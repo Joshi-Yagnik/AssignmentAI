@@ -5,18 +5,26 @@ import { useAuth } from '../context/AuthContext';
 
 // Auth
 import LoginPage from '../pages/auth/LoginPage';
+import ResetPasswordPage from '../pages/auth/ResetPasswordPage';
 
 // Student
 import StudentDashboard from '../pages/student/StudentDashboard';
 import VivaExamPage     from '../pages/student/VivaExamPage';
 import StudentAssignmentsPage from '../pages/student/StudentAssignmentsPage';
 import StudentSubmissionPage from '../pages/student/StudentSubmissionPage';
+import StudentAIGradingPage from '../pages/student/StudentAIGradingPage';
+import StudentAIReportPage from '../pages/student/StudentAIReportPage';
+import VivaLobbyPage from '../pages/student/VivaLobbyPage';
 
 // Teacher
 import TeacherDashboard    from '../pages/teacher/TeacherDashboard';
 import DeployAssignmentPage from '../pages/teacher/DeployAssignmentPage';
 import StudentRequestsPage  from '../pages/teacher/StudentRequestsPage';
 import ReviewWorkPage       from '../pages/teacher/ReviewWorkPage';
+import TeacherGradingQueuePage from '../pages/teacher/TeacherGradingQueuePage';
+import TeacherVivaPage      from '../pages/teacher/TeacherVivaPage';
+import TeacherVivaMonitorPage from '../pages/teacher/TeacherVivaMonitorPage';
+import TeacherStudentsPage  from '../pages/teacher/TeacherStudentsPage';
 
 // Admin
 import AdminDashboard   from '../pages/admin/AdminDashboard';
@@ -25,6 +33,13 @@ import DepartmentsPage from '../pages/admin/DepartmentsPage';
 import SubjectsPage    from '../pages/admin/SubjectsPage';
 import UsersPage       from '../pages/admin/UsersPage';
 import AssignmentsPage from '../pages/admin/AssignmentsPage';
+import AdminAIEnginePage from '../pages/admin/AdminAIEnginePage';
+import AdminReportsPage from '../pages/admin/AdminReportsPage';
+import AdminVivaPage    from '../pages/admin/AdminVivaPage';
+
+// Analytics
+import StudentGradesPage from '../pages/student/StudentGradesPage';
+import TeacherAnalyticsPage from '../pages/teacher/TeacherAnalyticsPage';
 
 // ── Placeholder ───────────────────────────────────────────────────────────────
 const Placeholder = ({ title }) => (
@@ -87,7 +102,8 @@ export default function AppRouter() {
       <ToastProvider>
         <Routes>
           {/* Auth */}
-          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login"          element={<LoginPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/" element={<RootRedirect />} />
 
           {/* ── Student Portal ─────────────────────────────────────────── */}
@@ -102,9 +118,11 @@ export default function AppRouter() {
             <Route index              element={<StudentDashboard />} />
             <Route path="assignments" element={<StudentAssignmentsPage />} />
             <Route path="submit/:assignmentId" element={<StudentSubmissionPage />} />
-            <Route path="ai-grading"  element={<Placeholder title="AI Grading" />} />
-            <Route path="viva"        element={<VivaExamPage />} />
-            <Route path="grades"      element={<Placeholder title="Grades & Reports" />} />
+            <Route path="ai-grading"  element={<StudentAIGradingPage />} />
+            <Route path="ai-grading/:submissionId" element={<StudentAIReportPage />} />
+            <Route path="viva"        element={<VivaLobbyPage />} />
+            <Route path="viva/:sessionId" element={<VivaExamPage />} />
+            <Route path="grades"      element={<StudentGradesPage />} />
           </Route>
 
           {/* ── Teacher Portal ─────────────────────────────────────────── */}
@@ -118,11 +136,12 @@ export default function AppRouter() {
           >
             <Route index              element={<TeacherDashboard />} />
             <Route path="assignments" element={<DeployAssignmentPage />} />
-            <Route path="grading"     element={<Placeholder title="AI Grading Queue" />} />
-            <Route path="viva"        element={<Placeholder title="Live Viva Sessions" />} />
-            <Route path="students"    element={<Placeholder title="Students" />} />
+            <Route path="grading"     element={<TeacherGradingQueuePage />} />
+            <Route path="viva"        element={<TeacherVivaPage />} />
+            <Route path="viva/monitor/:sessionId" element={<TeacherVivaMonitorPage />} />
+            <Route path="students"    element={<TeacherStudentsPage />} />
             <Route path="requests"    element={<StudentRequestsPage />} />
-            <Route path="analytics"   element={<Placeholder title="Analytics" />} />
+            <Route path="analytics"   element={<TeacherAnalyticsPage />} />
             <Route path="review/:submissionId" element={<ReviewWorkPage />} />
           </Route>
 
@@ -141,9 +160,9 @@ export default function AppRouter() {
             <Route path="subjects"      element={<SubjectsPage />} />
             <Route path="users"         element={<UsersPage />} />
             <Route path="courses"       element={<AssignmentsPage />} />
-            <Route path="ai-engine"     element={<Placeholder title="AI Engine" />} />
-            <Route path="viva"          element={<Placeholder title="Viva Control" />} />
-            <Route path="reports"       element={<Placeholder title="Reports & Analytics" />} />
+            <Route path="ai-engine"     element={<AdminAIEnginePage />} />
+            <Route path="viva"          element={<AdminVivaPage />} />
+            <Route path="reports"       element={<AdminReportsPage />} />
             <Route path="security"      element={<Placeholder title="Security" />} />
             <Route path="settings"      element={<Placeholder title="Settings" />} />
           </Route>

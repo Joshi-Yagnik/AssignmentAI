@@ -263,7 +263,7 @@ export default function StudentSubmissionPage() {
                          <p className="text-label-md font-medium text-ink-primary">Uploading {file?.name}…</p>
                        </div>
                        <div className="w-full h-2 bg-surface-high rounded-full overflow-hidden">
-                         <div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: \`\${progress}%\` }} />
+                         <div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
                        </div>
                        <p className="text-label-sm text-ink-muted mt-1.5 text-right">{progress}%</p>
                      </div>

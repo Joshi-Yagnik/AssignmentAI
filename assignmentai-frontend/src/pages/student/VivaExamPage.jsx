@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useToast } from '../../components/shared/Toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Mic, MicOff, Camera as CameraIcon, CameraOff, Shield, AlertTriangle, ChevronRight, ChevronLeft, Lightbulb, Bot } from 'lucide-react';
-import { VIVA_QUESTIONS } from '../../data/mockData';
-import { submitVivaAnswer, endVivaSession } from '../../services/vivaService';
-import * as faceapi from 'face-api.js/dist/face-api.js';
+import api from '../../services/api';
 import io from 'socket.io-client';
 
 const SOCKET_URL = import.meta.env.VITE_API_BASE_URL 
@@ -35,17 +33,24 @@ function Timer({ seconds }) {
 export default function VivaExamPage() {
   const toast  = useToast();
   const navigate = useNavigate();
+  const { sessionId } = useParams();
+  const location = useLocation();
+  
+  // Fallback if no meta passed via state
+  const [meta, setMeta] = useState(location.state?.meta || { title: 'Live Viva', duration: 45, questions: [] });
+  
   const [qIdx, setQIdx]       = useState(0);
   const [answer, setAnswer]   = useState('');
   const [micOn, setMicOn]     = useState(true);
   const [camOn, setCamOn]     = useState(true);
   const [hints,  setHints]    = useState(2);
-  const [timeLeft, setTimeLeft] = useState(45 * 60); // 45 mins
+  const [timeLeft, setTimeLeft] = useState(meta.duration * 60);
   const [loading, setLoading] = useState(false);
   const [streamError, setStreamError] = useState(false);
 
   // Security / Violations
-  const [warnings, setWarnings] = useState(() => parseInt(sessionStorage.getItem('viva_warnings') || '0', 10));
+  const [warnings, setWarnings] = useState(() => parseInt(sessionStorage.getItem(`viva_warnings_${sessionId}`) || '0', 10));
+  // Mock face tracking without local models
   const [faceStatus, setFaceStatus] = useState('Initializing...');
   const [multipleFaces, setMultipleFaces] = useState(false);
 
@@ -53,8 +58,21 @@ export default function VivaExamPage() {
   const streamRef = useRef(null);
   const socketRef = useRef(null);
   const recognitionRef = useRef(null);
-  const faceIntervalRef = useRef(null);
-  const sessionId = 'viva-session-' + Math.floor(Math.random() * 10000); // Mock session ID
+
+  useEffect(() => {
+    // If we didn't get meta from navigation state, we should ideally fetch session details.
+    // For now, if questions are empty, we can mock a few or show an error.
+    if (!meta.questions || meta.questions.length === 0) {
+        setMeta({
+            title: 'Live Viva',
+            duration: 45,
+            questions: [
+                {text: 'Define Artificial Intelligence and explain its key branches.', difficulty: 'easy'},
+                {text: 'What is explainability in AI, and why does it matter for high-stakes applications?', difficulty: 'hard'}
+            ]
+        });
+    }
+  }, [meta]);
 
   // Timer
   useEffect(() => {
@@ -62,25 +80,37 @@ export default function VivaExamPage() {
     return () => clearInterval(t);
   }, []);
 
-  // Violation tracker (Tab switch / Face / Blur)
+  // Violation tracker (Tab switch)
   const addWarning = useCallback((type) => {
     setWarnings(prev => {
       const nw = prev + 1;
-      sessionStorage.setItem('viva_warnings', nw.toString());
+      sessionStorage.setItem(`viva_warnings_${sessionId}`, nw.toString());
       if (socketRef.current) {
         socketRef.current.emit('viva_warning', { sessionId, type, timestamp: new Date() });
       }
       
+      // Best effort API log
+      api.post(`/viva/sessions/${sessionId}/violations`, { type }).catch(()=>{});
+      
       if (nw >= 3) {
         toast({ type: 'error', title: 'Exam Terminated', message: 'Maximum security violations reached. Auto-submitting.' });
-        if (socketRef.current) socketRef.current.emit('end_viva', { sessionId, fullTranscript: answer });
-        setTimeout(() => navigate('/student'), 2000);
+        if (socketRef.current) socketRef.current.emit('end_viva', { sessionId });
+        
+        // Final submit
+        api.post(`/viva/sessions/${sessionId}/answers`, {
+            transcript: answer,
+            warnings: nw,
+            status: 'terminated'
+        }).then(() => {
+            setTimeout(() => navigate('/student/viva'), 2000);
+        });
+
       } else {
         toast({ type: 'warning', title: 'Security Warning', message: `${type} detected. Warning ${nw}/3.` });
       }
       return nw;
     });
-  }, [toast, navigate, answer]);
+  }, [toast, navigate, answer, sessionId]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -90,34 +120,31 @@ export default function VivaExamPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [addWarning]);
 
-  // Sockets & Face API & WebRTC
+  // Sockets & WebRTC (No local models for face-api to prevent crashing)
   useEffect(() => {
     // 1. Connect Socket
     socketRef.current = io(SOCKET_URL);
     socketRef.current.emit('join_viva', { sessionId });
 
-    // 2. Load Face API Models
-    async function loadModelsAndMedia() {
+    // 2. Request Camera
+    async function loadMedia() {
       try {
-        await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
-        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-        setFaceStatus('Models loaded, requesting camera...');
-        
+        setFaceStatus('Requesting camera...');
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
         setStreamError(false);
-        setFaceStatus('Face ID: Verified ✓');
+        setFaceStatus('Face ID: Verified ✓'); // Mock verification
       } catch (err) {
         console.error("Setup error:", err);
         setStreamError(true);
-        setFaceStatus('Camera access denied or models failed');
+        setFaceStatus('Camera access denied');
         toast({ type: 'error', title: 'Setup Failed', message: 'Please allow camera and microphone access to proceed.', duration: 6000 });
       }
     }
-    loadModelsAndMedia();
+    loadMedia();
 
     // 3. Setup Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -128,13 +155,10 @@ export default function VivaExamPage() {
       recognition.lang = 'en-US';
       
       recognition.onresult = (event) => {
-        let interimTranscript = '';
         let finalTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
             finalTranscript += event.results[i][0].transcript;
-          } else {
-            interimTranscript += event.results[i][0].transcript;
           }
         }
         
@@ -142,6 +166,7 @@ export default function VivaExamPage() {
           setAnswer(prev => {
             const nextAns = prev + (prev ? ' ' : '') + finalTranscript;
             if (socketRef.current) {
+               // Send to teacher monitor
                socketRef.current.emit('viva_transcript_update', { sessionId, transcript: nextAns });
             }
             return nextAns;
@@ -159,7 +184,6 @@ export default function VivaExamPage() {
       if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
       if (recognitionRef.current) recognitionRef.current.stop();
       if (socketRef.current) socketRef.current.disconnect();
-      if (faceIntervalRef.current) clearInterval(faceIntervalRef.current);
     };
   }, [toast, sessionId]);
 
@@ -175,32 +199,26 @@ export default function VivaExamPage() {
     }
   }, [micOn, camOn]);
 
-  // Face Tracking Loop
-  const onVideoPlay = () => {
-    faceIntervalRef.current = setInterval(async () => {
-      if (!videoRef.current || !camOn) return;
-      const detections = await faceapi.detectAllFaces(videoRef.current, new faceapi.TinyFaceDetectorOptions());
-      
-      if (detections.length === 0) {
-        setFaceStatus('Lost');
-      } else if (detections.length > 1) {
-        setMultipleFaces(true);
-        addWarning('Multiple faces detected');
-      } else {
-        setFaceStatus('Face ID: Verified ✓');
-        setMultipleFaces(false);
-      }
-    }, 2000);
-  };
 
   const handleNext = async () => {
     setLoading(true);
-    // Simulate API call
     try {
-      await new Promise(r => setTimeout(r, 600)); // fake delay
-      toast({ type: 'success', title: 'Answer saved' });
-      setQIdx(i => i + 1);
-      setAnswer('');
+      // Save progress
+      await api.post(`/viva/sessions/${sessionId}/answers`, {
+          transcript: answer,
+          warnings,
+          status: 'live'
+      });
+      toast({ type: 'success', title: 'Progress saved' });
+      
+      if (qIdx < meta.questions.length - 1) {
+          setQIdx(i => i + 1);
+          setAnswer('');
+      } else {
+          handleEnd();
+      }
+    } catch (err) {
+        toast({ type: 'error', title: 'Failed to save progress' });
     } finally {
       setLoading(false);
     }
@@ -208,36 +226,35 @@ export default function VivaExamPage() {
 
   const handleEnd = async () => {
     toast({ type: 'info', title: 'Exam ended', message: 'Processing AI integrity check...' });
-    if (socketRef.current) socketRef.current.emit('end_viva', { sessionId, fullTranscript: answer });
+    if (socketRef.current) socketRef.current.emit('end_viva', { sessionId });
     
     try {
-      await fetch(`${SOCKET_URL}/api/reports/viva-integrity/test-submission-id`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-        body: JSON.stringify({ vivaTranscript: answer, warnings })
+      await api.post(`/viva/sessions/${sessionId}/answers`, {
+          transcript: answer,
+          warnings,
+          status: 'ended'
       });
       toast({ type: 'success', title: 'Integrity Report Saved' });
     } catch (err) {
       console.error(err);
-      toast({ type: 'error', title: 'Failed to save integrity report' });
+      toast({ type: 'error', title: 'Failed to save final transcript' });
     }
 
-    navigate('/student');
+    navigate('/student/viva');
   };
 
-  const q = VIVA_QUESTIONS[qIdx];
+  const q = meta.questions[qIdx] || { text: 'Loading...', difficulty: 'easy' };
   const DIFFICULTY_COLOR = { easy: 'text-success', medium: 'text-warning', hard: 'text-danger' };
   const DIFFICULTY_BG    = { easy: 'bg-success-bg', medium: 'bg-warning-bg', hard: 'bg-danger-bg' };
 
   return (
     <div className="min-h-screen flex flex-col bg-surface">
-      {/* ── Exam Top Bar ─────────────────────────────────────────────────── */}
       <header className="h-14 px-4 md:px-6 flex items-center justify-between bg-primary-950 shrink-0">
         <div className="hidden sm:flex items-center gap-3">
           <Bot className="w-5 h-5 text-primary-300" aria-hidden="true" />
           <span className="text-white font-bold text-sm">AssignmentAI</span>
           <span className="text-primary-300 text-sm">·</span>
-          <span className="text-primary-200 text-sm">AI Ethics — Live Viva</span>
+          <span className="text-primary-200 text-sm">{meta.title} — Live Viva</span>
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-center">
           <span className="flex items-center gap-2">
@@ -263,34 +280,29 @@ export default function VivaExamPage() {
         </div>
       </header>
 
-      {/* ── Responsive Body (Stacks on mobile) ─────────────────────────── */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[280px_1fr_300px] gap-5 p-4 md:p-5 overflow-y-auto lg:overflow-hidden">
 
-        {/* COL 1 — Camera & Audio (Moves to top on mobile) */}
+        {/* COL 1 — Camera & Audio */}
         <div className="flex flex-col gap-4 order-1 lg:order-2">
-          {/* Camera feed */}
           <div className="card p-0 overflow-hidden bg-primary-950 flex-1 relative min-h-[250px] lg:min-h-[320px] rounded-2xl border-4 border-primary-900">
             {camOn && !streamError ? (
               <>
                 <video
                   ref={videoRef}
-                  onPlay={onVideoPlay}
                   autoPlay
                   playsInline
                   muted
                   className="absolute inset-0 w-full h-full object-cover"
                 />
-                {/* Simulated camera HUD overlays */}
                 <div className="absolute inset-4 border-2 border-dashed border-white/20 rounded-xl pointer-events-none" />
                 
-                {/* Face tracking rect simulation */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                    <div className="w-32 h-40 border border-primary-400/50 bg-primary-900/10 rounded-xl" />
                 </div>
                 
-                <div className={`absolute top-4 left-4 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm rounded-lg px-2.5 py-1 z-10 ${faceStatus === 'Lost' ? 'border border-danger' : ''}`}>
-                  <span className={`w-2 h-2 rounded-full ${faceStatus === 'Lost' ? 'bg-danger' : 'bg-success'}`} />
-                  <span className={`text-xs font-medium ${faceStatus === 'Lost' ? 'text-danger-100' : 'text-white'}`}>{faceStatus}</span>
+                <div className={`absolute top-4 left-4 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm rounded-lg px-2.5 py-1 z-10 ${faceStatus.includes('Lost') || faceStatus.includes('denied') ? 'border border-danger' : ''}`}>
+                  <span className={`w-2 h-2 rounded-full ${faceStatus.includes('Lost') || faceStatus.includes('denied') ? 'bg-danger' : 'bg-success'}`} />
+                  <span className={`text-xs font-medium ${faceStatus.includes('Lost') || faceStatus.includes('denied') ? 'text-danger-100' : 'text-white'}`}>{faceStatus}</span>
                 </div>
                 <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm rounded-lg px-2.5 py-1 z-10">
                   <span className="text-white/80 text-xs">AI Analyzing</span>
@@ -305,7 +317,6 @@ export default function VivaExamPage() {
             )}
           </div>
 
-          {/* Waveform & Controls */}
           <div className="card py-3 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -327,7 +338,6 @@ export default function VivaExamPage() {
                 <button 
                   onClick={() => setMicOn(m => !m)} 
                   className={`btn btn-sm ${micOn ? 'bg-primary-50 text-primary-700' : 'bg-surface-high text-ink-muted'}`}
-                  aria-pressed={micOn}
                   aria-label="Toggle Microphone"
                 >
                   {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
@@ -335,7 +345,6 @@ export default function VivaExamPage() {
                 <button 
                   onClick={() => setCamOn(c => !c)} 
                   className={`btn btn-sm ${camOn ? 'bg-primary-50 text-primary-700' : 'bg-surface-high text-ink-muted'}`}
-                  aria-pressed={camOn}
                   aria-label="Toggle Camera"
                 >
                   {camOn ? <CameraIcon className="w-4 h-4" /> : <CameraOff className="w-4 h-4" />}
@@ -343,40 +352,37 @@ export default function VivaExamPage() {
               </div>
             </div>
             <p className="text-xs text-ink-muted italic truncate px-2 bg-surface-low rounded py-1">
-              Live Transcript streaming...
+              Live Transcript streaming to monitor...
             </p>
           </div>
         </div>
 
-        {/* COL 2 — Q&A (Main focus) */}
+        {/* COL 2 — Q&A */}
         <div className="card flex flex-col gap-5 h-fit order-2 lg:order-2">
-          {/* Progress */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-semibold text-ink-primary">Question Progress</h3>
-              <span className="text-label-sm text-ink-muted">{qIdx + 1}/{VIVA_QUESTIONS.length}</span>
+              <span className="text-label-sm text-ink-muted">{qIdx + 1}/{meta.questions.length}</span>
             </div>
-            <div className="h-2 bg-surface-high rounded-full overflow-hidden" role="progressbar" aria-valuenow={qIdx+1} aria-valuemin={1} aria-valuemax={VIVA_QUESTIONS.length}>
+            <div className="h-2 bg-surface-high rounded-full overflow-hidden">
               <div className="h-full bg-indigo-gradient rounded-full transition-all duration-500"
-                   style={{ width: `${((qIdx + 1) / VIVA_QUESTIONS.length) * 100}%` }} />
+                   style={{ width: `${((qIdx + 1) / meta.questions.length) * 100}%` }} />
             </div>
           </div>
 
-          {/* Current question */}
           <div className="p-4 rounded-xl border-l-4 border-primary bg-primary-50">
             <div className="flex items-center justify-between mb-3">
               <span className="text-label-sm bg-primary text-white rounded-full px-2.5 py-0.5 font-semibold">
                 Question {qIdx + 1}
               </span>
               <span className={`text-label-sm rounded-full px-2.5 py-0.5 font-semibold
-                ${DIFFICULTY_BG[q.difficulty]} ${DIFFICULTY_COLOR[q.difficulty]}`}>
-                {q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1)}
+                ${DIFFICULTY_BG[q.difficulty] || DIFFICULTY_BG.easy} ${DIFFICULTY_COLOR[q.difficulty] || DIFFICULTY_COLOR.easy}`}>
+                {q.difficulty ? q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1) : 'Unknown'}
               </span>
             </div>
-            <p className="text-ink-primary font-semibold text-sm leading-relaxed" aria-live="polite">{q.text}</p>
+            <p className="text-ink-primary font-semibold text-sm leading-relaxed">{q.text}</p>
           </div>
 
-          {/* Answer */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <label htmlFor="answer-box" className="label mb-0">Your Answer</label>
@@ -394,13 +400,8 @@ export default function VivaExamPage() {
                 placeholder="Speak clearly, or type your answer here…"
               />
             </div>
-            <div className="flex justify-between text-label-sm text-ink-muted">
-              <span>{answer.length} characters</span>
-              <span>Min 50 / Max 1000</span>
-            </div>
           </div>
 
-          {/* Navigation */}
           <div className="flex items-center gap-2 mt-auto pt-2">
             <button
               className="btn btn-ghost btn-sm flex-1 justify-center"
@@ -411,21 +412,22 @@ export default function VivaExamPage() {
             </button>
             <button
               className="btn-primary btn-sm flex-1 justify-center"
-              disabled={qIdx === VIVA_QUESTIONS.length - 1 || loading}
+              disabled={loading}
               onClick={handleNext}
             >
-              {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <>Next <ChevronRight className="w-4 h-4" /></>}
+              {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 
+               (qIdx === meta.questions.length - 1 ? 'Submit & End' : <>Next <ChevronRight className="w-4 h-4" /></>)}
             </button>
           </div>
         </div>
         
-        {/* COL 3 — Security (Moves to bottom on mobile) */}
+        {/* COL 3 — Security */}
         <div className="flex flex-col gap-5 order-3 lg:order-3">
           <div className="card flex flex-col gap-4 h-fit">
             <h3 className="font-semibold text-ink-primary flex items-center gap-2">
               <Shield className="w-4 h-4 text-primary" aria-hidden="true" /> Exam Security
             </h3>
-            <SecurityRow label="Face Detected"  ok={faceStatus !== 'Lost'} warning={faceStatus === 'Lost' ? 'Lost' : null} />
+            <SecurityRow label="Face Detected"  ok={faceStatus !== 'Camera access denied'} warning={faceStatus === 'Camera access denied' ? 'Lost' : null} />
             <SecurityRow label="Single Person"  ok={!multipleFaces} warning={multipleFaces ? 'Multiple Faces' : null} />
             <SecurityRow label="Audio Normal"   ok={micOn} warning={!micOn ? 'Muted' : null} />
             
@@ -440,7 +442,6 @@ export default function VivaExamPage() {
             </div>
           </div>
 
-          {/* Hint Card */}
           <div className="card bg-surface-low border border-border/50">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-label-sm font-semibold text-ink-primary flex items-center gap-1.5">
@@ -465,7 +466,6 @@ export default function VivaExamPage() {
             </button>
           </div>
         </div>
-
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ const reportRoutes = require('./routes/report.routes');
 const adminRoutes = require('./routes/admin.routes');
 const usersRoutes = require('./routes/users.routes');
 const storageRoutes = require('./routes/storage.routes');
+const vivaRoutes = require('./routes/viva.routes');
 
 // Start background grading worker (BullMQ + Redis)
 require('./workers/gradingWorker');
@@ -29,6 +30,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/storage', storageRoutes);
 app.use('/api/admin/users', usersRoutes);  // must be before /api/admin
 app.use('/api/admin', adminRoutes);
+app.use('/api/viva', vivaRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -54,6 +56,30 @@ const io = new Server(server, {
 // Pass io to our socket handler
 require('./sockets/vivaSocket')(io);
 
-server.listen(PORT, () => {
+// ── Ensure Supabase Storage buckets exist ─────────────────────────────────────
+async function ensureStorageBuckets() {
+  const supabaseAdmin = require('./config/supabaseAdmin');
+  const buckets = [
+    { name: 'question-papers', public: true  },
+    { name: 'answer-keys',     public: false },
+    { name: 'submissions',     public: false },
+  ];
+
+  for (const bucket of buckets) {
+    const { error } = await supabaseAdmin.storage.createBucket(bucket.name, {
+      public: bucket.public,
+      allowedMimeTypes: ['application/pdf'],
+      fileSizeLimit: 20971520, // 20 MB
+    });
+    if (error && !error.message.includes('already exists')) {
+      console.error(`[Storage] Failed to create bucket "${bucket.name}":`, error.message);
+    } else if (!error) {
+      console.log(`[Storage] Bucket created: ${bucket.name}`);
+    }
+  }
+}
+
+server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  await ensureStorageBuckets();
 });

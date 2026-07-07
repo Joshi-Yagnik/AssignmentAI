@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../config/supabaseClient');
+const supabase = require('../config/supabaseAdmin'); // service-role key needed for storage signed URLs
 const { requireAuth } = require('../middleware/auth.middleware');
 
 // GET signed upload URL for direct storage uploads

@@ -89,10 +89,16 @@ router.post('/', requireAuth, requireRole(['student']), async (req, res) => {
     if (error) throw error;
 
     // ── Enqueue AI grading job ─────────────────────────────────────────────
-    const job = await gradingQueue.add('grade', { submissionId: data.id });
-    console.log(`[SubmissionRoute] Enqueued grading job ${job.id} for submission ${data.id}`);
+    let gradingJobId = null;
+    if (gradingQueue) {
+      const job = await gradingQueue.add('grade', { submissionId: data.id });
+      gradingJobId = job.id;
+      console.log(`[SubmissionRoute] Enqueued grading job ${job.id} for submission ${data.id}`);
+    } else {
+      console.warn('[SubmissionRoute] Grading queue unavailable (Redis not running). Submission saved without queuing.');
+    }
 
-    res.status(201).json({ ...data, gradingJobId: job.id });
+    res.status(201).json({ ...data, gradingJobId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

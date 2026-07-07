@@ -12,8 +12,8 @@ export const getAssignmentById = (id) =>
 
 // ── TEACHER: Assignments ─────────────────────────────────────────────────────
 
-/** Fetch assignments created by this teacher */
-export const getTeacherAssignments = () =>
+/** Fetch all assignments (Admins see all, Teachers see their own) */
+export const getAssignments = () =>
   api.get('/assignments').then(r => r.data);
 
 /** Create a new assignment (JSON payload — PDFs uploaded separately via storage) */

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../config/supabaseClient');
 const { requireAuth, requireRole } = require('../middleware/auth.middleware');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 
 const adminOnly = [requireAuth, requireRole(['admin'])];
 
