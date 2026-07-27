@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import TopBar from '../../components/shared/TopBar';
 import StatusBadge from '../../components/shared/StatusBadge';
@@ -6,11 +6,10 @@ import DataTable from '../../components/shared/DataTable';
 import { useToast } from '../../components/shared/Toast';
 import {
   ClipboardList, Clock, Video, Bot, Plus,
-  TrendingUp, Users, Eye,
+  TrendingUp, Users, Eye, Loader2
 } from 'lucide-react';
-import {
-  TEACHER_COURSES, PENDING_SUBMISSIONS, VIVA_SESSIONS
-} from '../../data/mockData';
+import { getAssignments, getPendingSubmissions } from '../../services/assignmentService';
+import api from '../../services/api';
 
 function StatCard({ icon: Icon, label, value, sub, color, attention }) {
   return (
@@ -41,6 +40,123 @@ function ProgressBar({ value }) {
 export default function TeacherDashboard() {
   const toast = useToast();
   const navigate = useNavigate();
+
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    activeAssignments: 0,
+    pendingReviews: 0,
+    liveVivas: 0,
+    aiGraded: 0,
+    totalStudents: 0,
+  });
+  const [courses, setCourses] = useState([]);
+  const [vivas, setVivas] = useState([]);
+  const [pendingSubmissions, setPendingSubmissions] = useState([]);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [assignmentsRes, submissionsRes, vivasRes, studentsRes] = await Promise.all([
+          getAssignments(),
+          getPendingSubmissions(),
+          api.get('/viva/sessions'),
+          api.get('/submissions/teacher/students'),
+        ]);
+        
+        // Compute active assignments
+        const activeAssignments = assignmentsRes.length;
+        
+        // Vivas
+        const vivaList = vivasRes.data || [];
+        const liveVivas = vivaList.filter(v => v.status === 'live').length;
+        setVivas(vivaList.map(v => {
+          let meta = {};
+          try { meta = JSON.parse(v.transcript || '{}'); } catch(e){}
+          return {
+            id: v.id,
+            title: meta.title || 'Viva Session',
+            status: v.status === 'scheduled' ? 'upcoming' : v.status,
+            date: new Date(v.scheduled_time).toLocaleDateString(),
+            time: new Date(v.scheduled_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            students: meta.questions?.length || 1, // Fallback placeholder
+          };
+        }).slice(0, 5));
+
+        // Submissions
+        const subs = (submissionsRes || []).map(s => {
+          return {
+            id: s.id,
+            student: `${s.users?.first_name || ''} ${s.users?.last_name || ''}`.trim() || 'Unknown',
+            avatar: (s.users?.first_name?.[0] || 'U').toUpperCase(),
+            rollNo: s.users?.email || 'N/A',
+            assignment: s.assignments?.title || 'Unknown Assignment',
+            course: s.assignments?.class_id || 'N/A',
+            submitted: new Date(s.submitted_at).toLocaleDateString(),
+            aiGrade: s.ai_reports?.[0]?.final_score || 0
+          };
+        });
+        setPendingSubmissions(subs);
+
+        // Resolve student data FIRST so it's available for subject enrolled counts
+        const studentList = studentsRes.data || [];
+        const gradedCount = studentList.reduce((acc, s) => acc + (s.graded_count || 0), 0);
+        
+        // Courses summary (Grouping assignments by subject with real student counts)
+        const subjectsMap = {};
+        assignmentsRes.forEach(a => {
+          if (a.subjects) {
+            const sid = a.subjects.id;
+            if (!subjectsMap[sid]) {
+              subjectsMap[sid] = {
+                id: sid,
+                code: a.subjects.code,
+                name: a.subjects.name,
+                enrolled: studentList.length, // real student count from this teacher's submissions
+                submissions: 0, // will compute below
+                pendingReviews: 0,
+                assignmentIds: [],
+              };
+            }
+            subjectsMap[sid].assignmentIds.push(a.id);
+          }
+        });
+
+        // Count pending reviews per subject by matching assignment_id
+        (submissionsRes || []).forEach(s => {
+          const aId = s.assignment_id;
+          for (const subj of Object.values(subjectsMap)) {
+            if (subj.assignmentIds.includes(aId)) {
+              subj.pendingReviews++;
+              break;
+            }
+          }
+        });
+
+        // Compute submission % (pending / total students, capped at 100)
+        Object.values(subjectsMap).forEach(subj => {
+          subj.submissions = studentList.length > 0
+            ? Math.min(100, Math.round((subj.pendingReviews / studentList.length) * 100))
+            : 0;
+        });
+
+        setCourses(Object.values(subjectsMap).slice(0, 3));
+
+        setStats({
+          activeAssignments,
+          pendingReviews: subs.length,
+          liveVivas,
+          aiGraded: gradedCount,
+          totalStudents: studentList.length,
+        });
+
+      } catch (err) {
+        toast({ type: 'error', title: 'Failed to load dashboard data' });
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, [toast]);
 
   const submissionColumns = [
     { key: 'student',    label: 'Student',    sortable: true,
@@ -73,14 +189,22 @@ export default function TeacherDashboard() {
     },
   ];
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <>
       <TopBar
         title="Teacher Dashboard"
-        subtitle="Monday, 7 July 2026"
+        subtitle={new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         showSearch
         actions={
-          <button className="btn-primary btn-sm" onClick={() => toast({ type: 'info', title: 'Opening assignment form…' })}>
+          <button className="btn-primary btn-sm" onClick={() => navigate('/teacher/deploy')}>
             <Plus className="w-4 h-4" /> New Assignment
           </button>
         }
@@ -89,10 +213,10 @@ export default function TeacherDashboard() {
       <main className="p-6 flex flex-col gap-6">
         {/* Stats */}
         <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          <StatCard icon={ClipboardList} label="Active Assignments"  value={8}    color="bg-primary"           />
-          <StatCard icon={Clock}         label="Pending Reviews"     value={23}   sub="Needs attention" color="bg-warning" attention />
-          <StatCard icon={Video}         label="Live Viva Today"     value={2}    color="bg-danger"            />
-          <StatCard icon={Bot}           label="AI Graded Today"     value={47}   color="bg-success"           />
+          <StatCard icon={ClipboardList} label="Active Assignments"  value={stats.activeAssignments}    color="bg-primary"           />
+          <StatCard icon={Clock}         label="Pending Reviews"     value={stats.pendingReviews}   sub="Needs attention" color="bg-warning" attention={stats.pendingReviews > 0} />
+          <StatCard icon={Video}         label="Live Viva Today"     value={stats.liveVivas}    color="bg-danger"            />
+          <StatCard icon={Bot}           label="AI Graded Today"     value={stats.aiGraded}   color="bg-success"           />
         </div>
 
         <div className="grid grid-cols-3 gap-6">
@@ -100,7 +224,9 @@ export default function TeacherDashboard() {
           <div className="col-span-2 flex flex-col gap-4">
             <h2 className="text-headline-sm">Course Summary</h2>
             <div className="grid grid-cols-1 gap-3">
-              {TEACHER_COURSES.map(c => (
+              {courses.length === 0 ? (
+                 <div className="card p-6 text-center text-ink-muted">No courses found. Deploy an assignment to get started.</div>
+              ) : courses.map(c => (
                 <div key={c.id} className="card-hover flex items-center gap-5 py-4">
                   <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center shrink-0">
                     <TrendingUp className="w-5 h-5 text-primary" />
@@ -122,9 +248,9 @@ export default function TeacherDashboard() {
                   </div>
                   <button
                     className={`btn btn-sm shrink-0 ${c.pendingReviews > 0 ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => toast({ type: 'info', title: `Opening ${c.name}…` })}
+                    onClick={() => navigate('/teacher/assignments')}
                   >
-                    {c.pendingReviews > 0 ? 'Review Now' : 'View'}
+                    View
                   </button>
                 </div>
               ))}
@@ -134,7 +260,9 @@ export default function TeacherDashboard() {
           {/* Viva panel */}
           <div className="flex flex-col gap-3">
             <h2 className="text-headline-sm">Upcoming Vivas</h2>
-            {VIVA_SESSIONS.map(v => (
+            {vivas.length === 0 ? (
+               <div className="card p-6 text-center text-ink-muted border-border/60">No upcoming vivas.</div>
+            ) : vivas.map(v => (
               <div key={v.id} className="card border border-border/60 flex flex-col gap-3 py-4">
                 <div className="flex items-center justify-between">
                   <p className="font-semibold text-ink-primary text-sm">{v.title}</p>
@@ -145,12 +273,12 @@ export default function TeacherDashboard() {
                     <Clock className="w-3.5 h-3.5" />{v.date} · {v.time}
                   </p>
                   <p className="text-label-sm text-ink-muted flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5" />{v.students} students
+                    <Users className="w-3.5 h-3.5" />{v.students} questions
                   </p>
                 </div>
                 <button
                   className={`btn btn-sm w-full justify-center ${v.status === 'upcoming' ? 'btn-primary' : 'btn-secondary'}`}
-                  onClick={() => toast({ type: v.status === 'upcoming' ? 'success' : 'info', title: v.status === 'upcoming' ? 'Starting session…' : 'Opening details…' })}
+                  onClick={() => navigate('/teacher/viva')}
                 >
                   {v.status === 'upcoming' ? 'Start Session' : 'View Details'}
                 </button>
@@ -163,10 +291,10 @@ export default function TeacherDashboard() {
         <div className="card p-0 overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
             <h2 className="text-headline-sm">Pending Submissions</h2>
-            <span className="text-label-sm text-ink-muted">{PENDING_SUBMISSIONS.length} awaiting review</span>
+            <span className="text-label-sm text-ink-muted">{pendingSubmissions.length} awaiting review</span>
           </div>
           <div className="p-4">
-            <DataTable columns={submissionColumns} data={PENDING_SUBMISSIONS} searchable searchKeys={['student', 'assignment']} />
+            <DataTable columns={submissionColumns} data={pendingSubmissions} searchable searchKeys={['student', 'assignment']} />
           </div>
         </div>
       </main>

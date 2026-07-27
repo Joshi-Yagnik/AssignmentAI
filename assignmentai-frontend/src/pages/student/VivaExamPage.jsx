@@ -4,6 +4,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Mic, MicOff, Camera as CameraIcon, CameraOff, Shield, AlertTriangle, ChevronRight, ChevronLeft, Lightbulb, Bot } from 'lucide-react';
 import api from '../../services/api';
 import io from 'socket.io-client';
+import { useAuth } from '../../context/AuthContext';
 
 const SOCKET_URL = import.meta.env.VITE_API_BASE_URL 
   ? import.meta.env.VITE_API_BASE_URL.replace('/api', '') 
@@ -35,7 +36,12 @@ export default function VivaExamPage() {
   const navigate = useNavigate();
   const { sessionId } = useParams();
   const location = useLocation();
+  const { user } = useAuth();
   
+  // templateSessionId is the teacher's master session id — all students join that room
+  const templateSessionId = location.state?.templateSessionId || sessionId;
+  const studentName = user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email : 'Student';
+
   // Fallback if no meta passed via state
   const [meta, setMeta] = useState(location.state?.meta || { title: 'Live Viva', duration: 45, questions: [] });
   
@@ -60,19 +66,36 @@ export default function VivaExamPage() {
   const recognitionRef = useRef(null);
 
   useEffect(() => {
-    // If we didn't get meta from navigation state, we should ideally fetch session details.
-    // For now, if questions are empty, we can mock a few or show an error.
+    // If we didn't get meta from navigation state, fetch from API
     if (!meta.questions || meta.questions.length === 0) {
+      api.get(`/viva/sessions/${sessionId}`).then(({ data }) => {
+        if (data?.transcript) {
+          try {
+            const parsed = JSON.parse(data.transcript);
+            setMeta({
+              title: parsed.title || 'Live Viva',
+              duration: parsed.duration_minutes || 45,
+              questions: parsed.questions || [
+                { text: 'Define Artificial Intelligence and explain its key branches.', difficulty: 'easy' },
+                { text: 'What is explainability in AI, and why does it matter for high-stakes applications?', difficulty: 'hard' },
+              ],
+            });
+          } catch { /* use defaults */ }
+        }
+      }).catch(() => {
+        // Fallback defaults
         setMeta({
-            title: 'Live Viva',
-            duration: 45,
-            questions: [
-                {text: 'Define Artificial Intelligence and explain its key branches.', difficulty: 'easy'},
-                {text: 'What is explainability in AI, and why does it matter for high-stakes applications?', difficulty: 'hard'}
-            ]
+          title: 'Live Viva',
+          duration: 45,
+          questions: [
+            { text: 'Define Artificial Intelligence and explain its key branches.', difficulty: 'easy' },
+            { text: 'What is explainability in AI, and why does it matter for high-stakes applications?', difficulty: 'hard' },
+          ],
         });
+      });
     }
-  }, [meta]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   // Timer
   useEffect(() => {
@@ -86,7 +109,13 @@ export default function VivaExamPage() {
       const nw = prev + 1;
       sessionStorage.setItem(`viva_warnings_${sessionId}`, nw.toString());
       if (socketRef.current) {
-        socketRef.current.emit('viva_warning', { sessionId, type, timestamp: new Date() });
+        socketRef.current.emit('viva_warning', {
+          sessionId: templateSessionId,
+          socketId: socketRef.current.id,
+          studentName,
+          type,
+          timestamp: new Date()
+        });
       }
       
       // Best effort API log
@@ -94,7 +123,11 @@ export default function VivaExamPage() {
       
       if (nw >= 3) {
         toast({ type: 'error', title: 'Exam Terminated', message: 'Maximum security violations reached. Auto-submitting.' });
-        if (socketRef.current) socketRef.current.emit('end_viva', { sessionId });
+        if (socketRef.current) socketRef.current.emit('end_viva', {
+          sessionId: templateSessionId,
+          socketId: socketRef.current.id,
+          studentName,
+        });
         
         // Final submit
         api.post(`/viva/sessions/${sessionId}/answers`, {
@@ -110,7 +143,7 @@ export default function VivaExamPage() {
       }
       return nw;
     });
-  }, [toast, navigate, answer, sessionId]);
+  }, [toast, navigate, answer, sessionId, templateSessionId, studentName]);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -122,9 +155,13 @@ export default function VivaExamPage() {
 
   // Sockets & WebRTC (No local models for face-api to prevent crashing)
   useEffect(() => {
-    // 1. Connect Socket
+    // 1. Connect Socket — join the TEMPLATE session room so teacher can monitor all students
     socketRef.current = io(SOCKET_URL);
-    socketRef.current.emit('join_viva', { sessionId });
+    socketRef.current.emit('join_viva', {
+      sessionId: templateSessionId,
+      studentName,
+      role: 'student',
+    });
 
     // 2. Request Camera
     async function loadMedia() {
@@ -166,8 +203,13 @@ export default function VivaExamPage() {
           setAnswer(prev => {
             const nextAns = prev + (prev ? ' ' : '') + finalTranscript;
             if (socketRef.current) {
-               // Send to teacher monitor
-               socketRef.current.emit('viva_transcript_update', { sessionId, transcript: nextAns });
+               // Send to teacher monitor with student identity
+               socketRef.current.emit('viva_transcript_update', {
+                 sessionId: templateSessionId,
+                 socketId: socketRef.current.id,
+                 studentName,
+                 transcript: nextAns,
+               });
             }
             return nextAns;
           });
@@ -185,7 +227,7 @@ export default function VivaExamPage() {
       if (recognitionRef.current) recognitionRef.current.stop();
       if (socketRef.current) socketRef.current.disconnect();
     };
-  }, [toast, sessionId]);
+  }, [toast, sessionId, templateSessionId, studentName]);
 
   // Handle toggles
   useEffect(() => {
@@ -226,7 +268,11 @@ export default function VivaExamPage() {
 
   const handleEnd = async () => {
     toast({ type: 'info', title: 'Exam ended', message: 'Processing AI integrity check...' });
-    if (socketRef.current) socketRef.current.emit('end_viva', { sessionId });
+    if (socketRef.current) socketRef.current.emit('end_viva', {
+      sessionId: templateSessionId,
+      socketId: socketRef.current?.id,
+      studentName,
+    });
     
     try {
       await api.post(`/viva/sessions/${sessionId}/answers`, {

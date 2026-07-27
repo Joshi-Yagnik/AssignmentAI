@@ -4,10 +4,26 @@ const supabase = require('../config/supabaseClient');
 const { requireAuth, requireRole } = require('../middleware/auth.middleware');
 const { gradingQueue } = require('../queues/gradingQueue');
 
-// GET all pending submissions across all assignments (Teacher/Admin)
+// ─────────────────────────────────────────────────────────────
+// HELPER: Get all assignment IDs created by a teacher
+// ─────────────────────────────────────────────────────────────
+async function getTeacherAssignmentIds(teacherId) {
+  const { data, error } = await supabase
+    .from('assignments')
+    .select('id')
+    .eq('created_by', teacherId);
+  if (error) throw error;
+  return (data || []).map(a => a.id);
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET /pending — all submitted (not-yet-graded) submissions
+// Teacher: only for THEIR OWN assignments
+// Admin: all
+// ─────────────────────────────────────────────────────────────
 router.get('/pending', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('submissions')
       .select(`
         id,
@@ -17,22 +33,48 @@ router.get('/pending', requireAuth, requireRole(['teacher', 'admin']), async (re
         student_id,
         assignment_id,
         users!submissions_student_id_fkey(first_name, last_name, email),
-        assignments(title, max_marks, class_id)
+        assignments(id, title, max_marks, created_by)
       `)
       .eq('status', 'submitted')
       .order('submitted_at', { ascending: false });
 
+    if (req.user.role === 'teacher') {
+      // Only submissions for assignments created by this teacher
+      const myAssignmentIds = await getTeacherAssignmentIds(req.user.id);
+      if (myAssignmentIds.length === 0) return res.json([]);
+      query = query.in('assignment_id', myAssignmentIds);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
     res.json(data || []);
   } catch (err) {
-    console.error(err);
+    console.error('[Submission GET /pending]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET submissions for an assignment (Teacher/Admin)
+// ─────────────────────────────────────────────────────────────
+// GET /assignment/:assignmentId — submissions for one assignment
+// Teacher: must own the assignment
+// Admin: any assignment
+// ─────────────────────────────────────────────────────────────
 router.get('/assignment/:assignmentId', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
   try {
+    const { assignmentId } = req.params;
+
+    // Ownership check for teachers
+    if (req.user.role === 'teacher') {
+      const { data: assignment } = await supabase
+        .from('assignments')
+        .select('created_by')
+        .eq('id', assignmentId)
+        .single();
+      if (!assignment || assignment.created_by !== req.user.id) {
+        return res.status(403).json({ error: 'You can only view submissions for your own assignments.' });
+      }
+    }
+
     const { data, error } = await supabase
       .from('submissions')
       .select(`
@@ -40,21 +82,111 @@ router.get('/assignment/:assignmentId', requireAuth, requireRole(['teacher', 'ad
         status,
         submitted_at,
         file_url,
+        student_id,
         users!submissions_student_id_fkey(first_name, last_name, email),
         ai_reports(final_score, feedback_summary, generated_at)
       `)
-      .eq('assignment_id', req.params.assignmentId)
+      .eq('assignment_id', assignmentId)
       .order('submitted_at', { ascending: false });
 
     if (error) throw error;
     res.json(data || []);
   } catch (err) {
-    console.error(err);
+    console.error('[Submission GET /assignment]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET user's submissions
+// ─────────────────────────────────────────────────────────────
+// NEW — GET /teacher/students
+// Returns distinct students who submitted to THIS teacher's assignments,
+// including their submission count and average AI score.
+// Accessible by teacher and admin.
+// ─────────────────────────────────────────────────────────────
+router.get('/teacher/students', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
+  try {
+    // Determine which teacher we're scoping to
+    const teacherId = req.user.role === 'teacher' ? req.user.id : (req.query.teacher_id || null);
+
+    let submissionsQuery = supabase
+      .from('submissions')
+      .select(`
+        id,
+        status,
+        submitted_at,
+        student_id,
+        assignment_id,
+        users!submissions_student_id_fkey(id, first_name, last_name, email),
+        assignments(id, title, created_by),
+        ai_reports(final_score)
+      `)
+      .order('submitted_at', { ascending: false });
+
+    if (teacherId) {
+      const myAssignmentIds = await getTeacherAssignmentIds(teacherId);
+      if (myAssignmentIds.length === 0) return res.json([]);
+      submissionsQuery = submissionsQuery.in('assignment_id', myAssignmentIds);
+    }
+
+    const { data: submissions, error } = await submissionsQuery;
+    if (error) throw error;
+
+    // Aggregate by student
+    const studentMap = {};
+    for (const sub of (submissions || [])) {
+      const u = sub.users;
+      if (!u) continue;
+      const sid = u.id || sub.student_id;
+      if (!studentMap[sid]) {
+        studentMap[sid] = {
+          id:              sid,
+          first_name:      u.first_name || '',
+          last_name:       u.last_name  || '',
+          email:           u.email || '',
+          submission_count: 0,
+          graded_count:    0,
+          total_score:     0,
+          avg_score:       null,
+          latest_submission: null,
+          assignments_submitted: [],
+        };
+      }
+      const st = studentMap[sid];
+      st.submission_count++;
+      if (sub.status === 'graded' && sub.ai_reports && sub.ai_reports.length > 0) {
+        const score = sub.ai_reports[0].final_score;
+        if (score !== null && score !== undefined) {
+          st.graded_count++;
+          st.total_score += score;
+        }
+      }
+      if (!st.latest_submission || new Date(sub.submitted_at) > new Date(st.latest_submission)) {
+        st.latest_submission = sub.submitted_at;
+      }
+      if (sub.assignments?.title && !st.assignments_submitted.includes(sub.assignments.title)) {
+        st.assignments_submitted.push(sub.assignments.title);
+      }
+    }
+
+    // Compute average scores
+    const students = Object.values(studentMap).map(s => ({
+      ...s,
+      avg_score: s.graded_count > 0 ? Math.round(s.total_score / s.graded_count) : null,
+    }));
+
+    // Sort by latest submission descending
+    students.sort((a, b) => new Date(b.latest_submission) - new Date(a.latest_submission));
+
+    res.json(students);
+  } catch (err) {
+    console.error('[Submission GET /teacher/students]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /me — student's own submissions
+// ─────────────────────────────────────────────────────────────
 router.get('/me', requireAuth, requireRole(['student']), async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -70,7 +202,10 @@ router.get('/me', requireAuth, requireRole(['student']), async (req, res) => {
   }
 });
 
-// CREATE submission — enqueues an AI grading job automatically
+// ─────────────────────────────────────────────────────────────
+// POST / — create/update a submission (student)
+// Automatically enqueues an AI grading job.
+// ─────────────────────────────────────────────────────────────
 router.post('/', requireAuth, requireRole(['student']), async (req, res) => {
   try {
     const { assignment_id, file_url } = req.body;
@@ -105,11 +240,28 @@ router.post('/', requireAuth, requireRole(['student']), async (req, res) => {
   }
 });
 
-// PATCH submission grade — teacher confirms / overrides AI grade
+// ─────────────────────────────────────────────────────────────
+// PATCH /:id/grade — teacher confirms / overrides AI grade
+// Teacher: must own the assignment this submission belongs to
+// Admin: can grade any
+// ─────────────────────────────────────────────────────────────
 router.patch('/:id/grade', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
   try {
     const { finalGrade, remarks, notify } = req.body;
     const submissionId = req.params.id;
+
+    // Ownership check for teachers
+    if (req.user.role === 'teacher') {
+      const { data: sub } = await supabase
+        .from('submissions')
+        .select('assignment_id, assignments(created_by)')
+        .eq('id', submissionId)
+        .single();
+
+      if (!sub || !sub.assignments || sub.assignments.created_by !== req.user.id) {
+        return res.status(403).json({ error: 'You can only grade submissions for your own assignments.' });
+      }
+    }
 
     // Update submission status to graded
     const { data: submission, error: subErr } = await supabase
@@ -134,18 +286,32 @@ router.patch('/:id/grade', requireAuth, requireRole(['teacher', 'admin']), async
 
     if (repErr) throw repErr;
 
-    // TODO: trigger student notification if notify === true
-
     res.json({ submission, report, notified: notify ?? false });
   } catch (err) {
-    console.error(err);
+    console.error('[Submission PATCH /grade]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// UPDATE submission status (legacy — kept for compatibility)
+// ─────────────────────────────────────────────────────────────
+// PATCH /:id/status — legacy status update
+// Teacher: must own the assignment
+// ─────────────────────────────────────────────────────────────
 router.patch('/:id/status', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
   try {
+    // Ownership check for teachers
+    if (req.user.role === 'teacher') {
+      const { data: sub } = await supabase
+        .from('submissions')
+        .select('assignment_id, assignments(created_by)')
+        .eq('id', req.params.id)
+        .single();
+
+      if (!sub || !sub.assignments || sub.assignments.created_by !== req.user.id) {
+        return res.status(403).json({ error: 'You can only update submissions for your own assignments.' });
+      }
+    }
+
     const { status } = req.body;
     const { data, error } = await supabase
       .from('submissions')
@@ -157,7 +323,7 @@ router.patch('/:id/status', requireAuth, requireRole(['teacher', 'admin']), asyn
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error(err);
+    console.error('[Submission PATCH /status]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

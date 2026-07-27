@@ -108,7 +108,9 @@ router.delete('/departments/:id', ...adminOnly, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // SUBJECTS
 // ─────────────────────────────────────────────────────────────
-router.get('/subjects', ...adminOnly, async (req, res) => {
+const teacherOrAdmin = [requireAuth, requireRole(['admin', 'teacher'])];
+
+router.get('/subjects', ...teacherOrAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('subjects')

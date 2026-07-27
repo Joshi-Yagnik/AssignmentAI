@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import TopBar from '../../components/shared/TopBar';
 import StatusBadge from '../../components/shared/StatusBadge';
 import DataTable from '../../components/shared/DataTable';
 import Modal from '../../components/shared/Modal';
 import { useToast } from '../../components/shared/Toast';
+import { useAuth } from '../../context/AuthContext';
+import { getStudentAssignments } from '../../services/assignmentService';
+import { useNavigate } from 'react-router-dom';
 import {
   BookOpen, CheckCircle, Clock, Star, Video,
   Upload, ChevronRight, Zap, File as FileIcon, X
 } from 'lucide-react';
 import {
-  ASSIGNMENTS, VIVA_SESSIONS, CURRENT_USER
+  VIVA_SESSIONS
 } from '../../data/mockData';
 
 function StatCard({ icon: Icon, label, value, sub, color }) {
@@ -27,21 +30,48 @@ function StatCard({ icon: Icon, label, value, sub, color }) {
   );
 }
 
+function getEffectiveStatus(assignment) {
+  if (assignment.submission?.status === 'graded')    return 'graded';
+  if (assignment.submission?.status === 'submitted') return 'submitted';
+  const now = new Date();
+  if (new Date(assignment.deadline) < now)           return 'overdue';
+  return 'pending';
+}
+
 export default function StudentDashboard() {
-  const user = CURRENT_USER.student;
+  const { user } = useAuth();
   const toast = useToast();
-  const [selectedAssignment, setSelectedAssignment] = useState(null);
-  const [file, setFile] = useState(null);
-  const [notes, setNotes] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const navigate = useNavigate();
+  
+  const [assignments, setAssignments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAssignments = async () => {
+      try {
+        const data = await getStudentAssignments();
+        const enriched = data.map(a => ({
+          ...a,
+          effectiveStatus: getEffectiveStatus(a),
+          courseLabel: a.subjects?.name || 'Unknown Course',
+        }));
+        setAssignments(enriched);
+      } catch (err) {
+        toast({ type: 'error', title: 'Failed to load assignments' });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAssignments();
+  }, [toast]);
 
   const stats = {
-    total:     ASSIGNMENTS.length,
-    submitted: ASSIGNMENTS.filter(a => a.status === 'submitted').length,
-    pending:   ASSIGNMENTS.filter(a => a.status === 'pending').length,
-    graded:    ASSIGNMENTS.filter(a => a.aiGrade).length,
-    avgGrade:  Math.round(ASSIGNMENTS.filter(a => a.aiGrade).reduce((s, a) => s + a.aiGrade, 0)
-               / ASSIGNMENTS.filter(a => a.aiGrade).length) || 0,
+    total:     assignments.length,
+    submitted: assignments.filter(a => a.effectiveStatus === 'submitted').length,
+    pending:   assignments.filter(a => a.effectiveStatus === 'pending').length,
+    graded:    assignments.filter(a => a.effectiveStatus === 'graded').length,
+    avgGrade:  Math.round(assignments.filter(a => a.submission?.ai_reports?.[0]?.final_score).reduce((s, a) => s + (a.submission?.ai_reports?.[0]?.final_score || 0), 0)
+               / (assignments.filter(a => a.submission?.ai_reports?.[0]?.final_score).length || 1)) || 0,
   };
 
   const columns = [
@@ -53,30 +83,36 @@ export default function StudentDashboard() {
         </div>
       )
     },
-    { key: 'course',   label: 'Course',    sortable: true, width: '90px' },
+    { key: 'courseLabel',   label: 'Course',    sortable: true, width: '130px' },
     { key: 'deadline', label: 'Deadline',  sortable: true, width: '110px',
-      render: v => <span className="text-ink-secondary">{v}</span>
+      render: (v) => {
+        if (!v) return '—';
+        return <span className="text-ink-secondary">{new Date(v).toLocaleDateString()}</span>;
+      }
     },
-    { key: 'status',   label: 'Status',   width: '120px',
+    { key: 'effectiveStatus',   label: 'Status',   width: '120px',
       render: v => <StatusBadge status={v} />
     },
     { key: 'aiGrade',  label: 'AI Grade', width: '100px',
-      render: (v) => v
-        ? <span className="font-semibold text-primary-700">{v}/100</span>
-        : <span className="text-ink-muted">—</span>
+      render: (v, row) => {
+        const score = row.submission?.ai_reports?.[0]?.final_score;
+        return score != null
+          ? <span className="font-semibold text-primary-700">{score}/100</span>
+          : <span className="text-ink-muted">—</span>
+      }
     },
-    { key: 'id',       label: 'Action',   width: '110px',
+    { key: 'id',       label: 'Action',   width: '130px',
       render: (v, row) => (
-        row.status === 'pending'
+        row.effectiveStatus === 'pending' || row.effectiveStatus === 'overdue'
           ? <button
               className="btn btn-primary btn-sm gap-1 w-full"
-              onClick={() => { setSelectedAssignment(row); setFile(null); setNotes(''); }}
+              onClick={() => navigate(`/student/submit/${row.id}`)}
             >
               <Upload className="w-3 h-3" aria-hidden="true" /> Submit
             </button>
           : <button
               className="btn btn-secondary btn-sm gap-1 w-full"
-              onClick={() => toast({ type: 'info', title: 'Opening submission…' })}
+              onClick={() => navigate(`/student/submit/${row.id}`)}
             >
               View <ChevronRight className="w-3 h-3" aria-hidden="true" />
             </button>
@@ -84,29 +120,10 @@ export default function StudentDashboard() {
     },
   ];
 
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
-  };
-
-  const handleSubmit = () => {
-    if (!file) {
-      toast({ type: 'error', title: 'File required', message: 'Please select a file to upload.' });
-      return;
-    }
-    setSubmitting(true);
-    setTimeout(() => {
-      setSubmitting(false);
-      setSelectedAssignment(null);
-      toast({ type: 'success', title: 'Submitted!', message: 'Your assignment is being processed by AI.' });
-    }, 1500);
-  };
-
   return (
     <>
       <TopBar
-        title={`Welcome back, ${user.name.split(' ')[0]}! 👋`}
+        title={`Welcome back, ${user?.name?.split(' ')[0] || 'Student'}! 👋`}
         subtitle="Here's your assignment overview"
         showSearch
       />
@@ -150,90 +167,19 @@ export default function StudentDashboard() {
         <div className="card p-0 overflow-hidden">
           <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-border">
             <h2 className="text-headline-sm">My Assignments</h2>
-            <span className="text-label-sm text-ink-muted">{ASSIGNMENTS.length} total</span>
+            <span className="text-label-sm text-ink-muted">{assignments.length} total</span>
           </div>
           <div className="p-4">
             <DataTable
               columns={columns}
-              data={ASSIGNMENTS}
+              data={assignments}
               searchable
               searchKeys={['title', 'courseLabel']}
+              loading={loading}
             />
           </div>
         </div>
       </main>
-
-      {/* Submit modal */}
-      <Modal
-        open={!!selectedAssignment}
-        onClose={() => !submitting && setSelectedAssignment(null)}
-        title={`Submit: ${selectedAssignment?.title}`}
-        footer={
-          <>
-            <button className="btn btn-ghost" disabled={submitting} onClick={() => setSelectedAssignment(null)}>Cancel</button>
-            <button
-              className="btn-primary"
-              disabled={submitting || !file}
-              onClick={handleSubmit}
-            >
-              {submitting ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Confirm Submission'}
-            </button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-4">
-          <div className="p-4 bg-surface-low rounded-xl border border-border">
-            <p className="text-label-md text-ink-secondary">Course: <span className="font-medium text-ink-primary">{selectedAssignment?.courseLabel}</span></p>
-            <p className="text-label-md text-ink-secondary mt-1">Deadline: <span className="font-medium text-ink-primary">{selectedAssignment?.deadline}</span></p>
-          </div>
-          
-          <div>
-            <label className="label">Upload File <span className="text-danger">*</span></label>
-            {!file ? (
-              <label className="block border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 hover:bg-primary-50/20 transition-all cursor-pointer focus-within:ring-4 focus-within:ring-primary/10">
-                <Upload className="w-8 h-8 text-ink-muted mx-auto mb-2" aria-hidden="true" />
-                <p className="text-label-md text-ink-secondary">Drag & drop or <span className="text-primary font-medium">browse</span></p>
-                <p className="text-label-sm text-ink-muted mt-1">PDF, DOCX, ZIP — max 50MB</p>
-                <input type="file" className="hidden" onChange={handleFileChange} accept=".pdf,.docx,.zip" />
-              </label>
-            ) : (
-              <div className="flex items-center justify-between p-4 bg-primary-50 rounded-xl border border-primary-200">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-white flex items-center justify-center shrink-0 shadow-sm">
-                    <FileIcon className="w-5 h-5 text-primary" aria-hidden="true" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-ink-primary text-sm truncate max-w-[200px]">{file.name}</span>
-                    <span className="text-label-sm text-ink-muted">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
-                  </div>
-                </div>
-                <button 
-                  className="btn-icon text-danger hover:text-danger hover:bg-danger-bg" 
-                  onClick={() => setFile(null)}
-                  title="Remove file"
-                  aria-label="Remove uploaded file"
-                  disabled={submitting}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div>
-            <label htmlFor="student-notes" className="label">Additional Notes</label>
-            <textarea 
-              id="student-notes"
-              className="input resize-none" 
-              rows={3} 
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Any notes for your teacher…" 
-              disabled={submitting}
-            />
-          </div>
-        </div>
-      </Modal>
     </>
   );
 }

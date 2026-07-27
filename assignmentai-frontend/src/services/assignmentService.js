@@ -82,3 +82,7 @@ export const getMySubmissions = () =>
 /** Get a single submission by ID */
 export const getSubmissionById = (id) =>
   api.get(`/submissions/${id}`).then(r => r.data);
+
+/** Get pending submissions (for Teacher/Admin) */
+export const getPendingSubmissions = () =>
+  api.get('/submissions/pending').then(r => r.data);

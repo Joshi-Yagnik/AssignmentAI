@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import {
   getAssignmentById, getUploadUrl, uploadFileToStorage,
-  createSubmission, getSubmissionById, getDownloadUrl
+  createSubmission, getMySubmissions, getDownloadUrl
 } from '../../services/assignmentService';
 
 export default function StudentSubmissionPage() {
@@ -37,15 +37,20 @@ export default function StudentSubmissionPage() {
     async function loadData() {
       try {
         setLoading(true);
-        // We'll fetch the assignment details
-        const data = await getAssignmentById(assignmentId);
-        setAssignment(data);
+        // Fetch the assignment details and the user's submissions
+        const [assignData, mySubmissions] = await Promise.all([
+          getAssignmentById(assignmentId),
+          getMySubmissions()
+        ]);
         
-        // If there's already a submission, we could load it here
-        // (Assuming the API returns it nested or we fetch it separately)
-        if (data.submission) {
-          setFileUrl(data.submission.file_url);
+        // Find if this specific assignment has a submission
+        const existingSub = mySubmissions.find(s => s.assignment_id === assignmentId);
+        if (existingSub) {
+          assignData.submission = existingSub;
+          setFileUrl(existingSub.file_url);
         }
+        
+        setAssignment(assignData);
       } catch (err) {
         toast({ type: 'error', title: 'Failed to load assignment' });
       } finally {

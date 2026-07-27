@@ -148,7 +148,7 @@ router.post('/', ...teacherOrAdmin, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// UPDATE assignment
+// UPDATE assignment (teacher can only edit their own)
 // ─────────────────────────────────────────────────────────────
 router.put('/:id', ...teacherOrAdmin, async (req, res) => {
   try {
@@ -161,6 +161,18 @@ router.put('/:id', ...teacherOrAdmin, async (req, res) => {
       answer_key_pdf_url,
       subject_id,
     } = req.body;
+
+    // Ownership check: teachers can only edit their own assignments
+    if (req.user.role === 'teacher') {
+      const { data: existing } = await supabase
+        .from('assignments')
+        .select('created_by')
+        .eq('id', req.params.id)
+        .single();
+      if (!existing || existing.created_by !== req.user.id) {
+        return res.status(403).json({ error: 'You can only edit your own assignments.' });
+      }
+    }
 
     const { data, error } = await supabase
       .from('assignments')
@@ -189,10 +201,22 @@ router.put('/:id', ...teacherOrAdmin, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// DELETE assignment
+// DELETE assignment (teacher can only delete their own)
 // ─────────────────────────────────────────────────────────────
 router.delete('/:id', ...teacherOrAdmin, async (req, res) => {
   try {
+    // Ownership check: teachers can only delete their own assignments
+    if (req.user.role === 'teacher') {
+      const { data: existing } = await supabase
+        .from('assignments')
+        .select('created_by')
+        .eq('id', req.params.id)
+        .single();
+      if (!existing || existing.created_by !== req.user.id) {
+        return res.status(403).json({ error: 'You can only delete your own assignments.' });
+      }
+    }
+
     const { error } = await supabase
       .from('assignments')
       .delete()

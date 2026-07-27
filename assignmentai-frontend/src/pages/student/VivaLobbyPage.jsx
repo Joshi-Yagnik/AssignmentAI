@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
 import api from '../../services/api';
-import { Video, Clock, Calendar, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Video, Clock, Calendar, ChevronRight, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 
 function parseSessionMeta(session) {
   try {
@@ -41,6 +41,7 @@ export default function VivaLobbyPage() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [joiningId, setJoiningId] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +56,24 @@ export default function VivaLobbyPage() {
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleJoin = async (session) => {
+    const meta = parseSessionMeta(session);
+    setJoiningId(session.id);
+    try {
+      // Call join endpoint — creates a personal participation row for this student
+      const { data } = await api.post(`/viva/sessions/${session.id}/join`);
+      // Navigate to exam with the student's own session id (not the template id)
+      navigate(`/student/viva/${data.sessionId}`, {
+        state: { meta, templateSessionId: session.id }
+      });
+    } catch (err) {
+      const msg = err?.response?.data?.error || 'Failed to join session';
+      toast({ type: 'error', title: 'Cannot Join', message: msg });
+    } finally {
+      setJoiningId(null);
+    }
+  };
 
   return (
     <>
@@ -88,8 +107,11 @@ export default function VivaLobbyPage() {
             {sessions.map(session => {
               const meta = parseSessionMeta(session);
               const isLive = session.status === 'live';
+              const isScheduled = session.status === 'scheduled';
               const isDone = session.status === 'completed' || session.status === 'terminated';
               const scheduledAt = session.scheduled_time ? new Date(session.scheduled_time) : null;
+              const isJoining = joiningId === session.id;
+              const canJoin = isLive || isScheduled;
 
               return (
                 <div key={session.id} className={`card flex flex-col gap-4 hover:shadow-md transition-shadow ${isLive ? 'border-danger/40 border-2' : ''}`}>
@@ -122,18 +144,23 @@ export default function VivaLobbyPage() {
 
                   <div className="mt-auto pt-3 border-t border-border">
                     <button
-                      disabled={isDone}
+                      disabled={isDone || isJoining}
                       className={`btn btn-sm w-full flex items-center justify-center gap-2 ${
                         isLive ? 'btn-primary bg-danger hover:bg-danger/90' :
                         isDone ? 'btn-secondary opacity-50 cursor-not-allowed' :
                         'btn-secondary'
                       }`}
-                      onClick={() => {
-                        if (!isDone) navigate(`/student/viva/${session.id}`, { state: { meta } });
-                      }}
+                      onClick={() => canJoin && !isJoining && handleJoin(session)}
                     >
-                      {isDone ? 'Viva Completed' : isLive ? 'Join Now →' : 'Enter Exam Room'}
-                      {!isDone && <ChevronRight className="w-4 h-4" />}
+                      {isJoining ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Joining...</>
+                      ) : isDone ? (
+                        'Viva Completed'
+                      ) : isLive ? (
+                        <>Join Now <ChevronRight className="w-4 h-4" /></>
+                      ) : (
+                        <>Enter Exam Room <ChevronRight className="w-4 h-4" /></>
+                      )}
                     </button>
                   </div>
                 </div>

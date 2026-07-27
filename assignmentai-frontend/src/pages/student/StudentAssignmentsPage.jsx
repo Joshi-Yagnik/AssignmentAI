@@ -74,10 +74,14 @@ function getEffectiveStatus(assignment) {
   if (assignment.submission?.status === 'graded')    return 'graded';
   if (assignment.submission?.status === 'submitted') return 'submitted';
   const now = new Date();
-    if (new Date(assignment.deadline) < now)           return 'overdue';
-    return 'pending';
-  }
-  
+  if (new Date(assignment.deadline) < now)           return 'overdue';
+  return 'pending';
+}
+
+export default function StudentAssignmentsPage() {
+  const toast = useToast();
+  const navigate = useNavigate();
+
   const handleViewPdf = async (pathUrl) => {
     try {
       const { signedUrl } = await getDownloadUrl({ bucket: 'question-papers', path: pathUrl });
@@ -86,10 +90,6 @@ function getEffectiveStatus(assignment) {
       toast({ type: 'error', title: 'Failed to open question paper' });
     }
   };
-
-export default function StudentAssignmentsPage() {
-  const toast = useToast();
-  const navigate = useNavigate();
 
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading]         = useState(true);

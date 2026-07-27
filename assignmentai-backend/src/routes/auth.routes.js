@@ -148,10 +148,12 @@ router.post('/login', async (req, res) => {
     res.json({
       token,
       user: {
-        id:    dbUser.id,
-        email: dbUser.email,
-        name:  buildName(dbUser),
-        role:  dbUser.role,
+        id:         dbUser.id,
+        email:      dbUser.email,
+        name:       buildName(dbUser),
+        first_name: dbUser.first_name || '',
+        last_name:  dbUser.last_name  || '',
+        role:       dbUser.role,
       },
     });
   } catch (err) {
@@ -165,7 +167,7 @@ router.get('/me', requireAuth, async (req, res) => {
   try {
     const { data: dbUser, error } = await supabaseAdmin
       .from('users')
-      .select('id, email, first_name, last_name, role, is_active')
+      .select('id, email, first_name, last_name, role, is_active, department_id')
       .eq('id', req.user.id)
       .maybeSingle();
 
@@ -178,10 +180,13 @@ router.get('/me', requireAuth, async (req, res) => {
     }
 
     res.json({
-      id:    dbUser.id,
-      email: dbUser.email,
-      name:  buildName(dbUser),
-      role:  dbUser.role,
+      id:            dbUser.id,
+      email:         dbUser.email,
+      name:          buildName(dbUser),
+      first_name:    dbUser.first_name || '',
+      last_name:     dbUser.last_name  || '',
+      role:          dbUser.role,
+      department_id: dbUser.department_id || null,
     });
   } catch (err) {
     console.error('[Auth/me]', err.message);
