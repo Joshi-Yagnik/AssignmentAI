@@ -6,8 +6,10 @@ const supabaseAdmin = require('../config/supabaseAdmin');
 const { createRedisConnection } = require('../config/redisClient');
 
 const GROK_API_URL = 'https://api.x.ai/v1/chat/completions';
-const GROK_MODEL = 'grok-3';
 const MIN_TEXT_LENGTH = 50; // below this threshold, assume scanned PDF → run OCR
+
+// Image file extensions that go straight to Tesseract
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -34,16 +36,48 @@ async function downloadBuffer(bucket, path) {
 }
 
 /**
- * Extract plain text from a buffer. Supports .txt and .pdf files.
- * Falls back to Tesseract OCR when the PDF is image-only (scanned).
+ * Get the lowercase file extension from a path/filename.
+ */
+function getExtension(filename) {
+  if (!filename) return '';
+  const parts = filename.split('.');
+  return parts.length > 1 ? `.${parts[parts.length - 1].toLowerCase()}` : '';
+}
+
+/**
+ * Run Tesseract OCR on a buffer (works for both scanned PDFs and raw images).
+ */
+async function runOCR(buffer) {
+  console.log('[GradingWorker] Running Tesseract OCR...');
+  const tesseract = await createTesseractWorker('eng');
+  try {
+    const { data } = await tesseract.recognize(buffer);
+    return (data.text || '').trim();
+  } finally {
+    await tesseract.terminate();
+  }
+}
+
+/**
+ * Extract plain text from a buffer.
+ * Supports: .txt, .docx (text-only fallback), .pdf (with OCR fallback), and image files.
  */
 async function extractText(buffer, filename) {
-  let text = '';
-  
-  if (filename && filename.toLowerCase().endsWith('.txt')) {
+  const ext = getExtension(filename);
+
+  // ── Plain text ──────────────────────────────────────────────────────────────
+  if (ext === '.txt') {
     return buffer.toString('utf-8').trim();
   }
 
+  // ── Image files → direct OCR ────────────────────────────────────────────────
+  if (IMAGE_EXTENSIONS.includes(ext)) {
+    console.log(`[GradingWorker] Image file detected (${ext}) — running OCR directly.`);
+    return runOCR(buffer);
+  }
+
+  // ── PDF: try text extraction first, fall back to OCR ────────────────────────
+  let text = '';
   try {
     const parsed = await pdfParse(buffer);
     text = (parsed.text || '').trim();
@@ -55,72 +89,33 @@ async function extractText(buffer, filename) {
     return text;
   }
 
-  // ── Scanned PDF: convert to image then OCR ────────────────────────────────
-  console.log('[GradingWorker] Text too short — running Tesseract OCR...');
-  const tesseract = await createTesseractWorker('eng');
-  try {
-    // Tesseract can read PDFs directly in its Node.js binding
-    const { data } = await tesseract.recognize(buffer);
-    text = (data.text || '').trim();
-  } finally {
-    await tesseract.terminate();
-  }
-
-  return text;
+  // Scanned PDF — use OCR
+  console.log('[GradingWorker] PDF text too short — running Tesseract OCR on scanned PDF...');
+  return runOCR(buffer);
 }
 
 /**
- * Build a structured prompt for Grok.
+ * Build a structured prompt for Grok using the dynamic template from the DB.
  */
-function buildPrompt({ answerKeyText, submissionText, maxMarks, aiStrictness }) {
+function buildPrompt({ basePrompt, answerKeyText, submissionText, maxMarks, aiStrictness }) {
   const strictnessLabel =
     aiStrictness >= 75 ? 'strict' : aiStrictness >= 40 ? 'balanced' : 'lenient';
 
-  return `You are an academic grading assistant. Use a ${strictnessLabel} grading approach.
+  let prompt = basePrompt
+    .replace('{{strictnessLabel}}', strictnessLabel)
+    .replace('{{answerKeyText}}', answerKeyText)
+    .replace('{{submissionText}}', submissionText);
+    
+  // Replace all occurrences of {{maxMarks}}
+  prompt = prompt.split('{{maxMarks}}').join(maxMarks);
 
-ANSWER KEY (reference solution):
----
-${answerKeyText}
----
-
-STUDENT SUBMISSION:
----
-${submissionText}
----
-
-Total marks available: ${maxMarks}
-
-Instructions:
-1. Identify every distinct question or section in the answer key.
-2. Check which questions the student actually attempted.
-3. Score each question/section individually based on accuracy, completeness,
-   and clarity, proportional to its weight.
-4. Produce a final cumulative score out of ${maxMarks}.
-
-Respond ONLY with valid JSON — no markdown, no preamble — matching this schema exactly:
-{
-  "total_questions": <integer>,
-  "questions_answered": <integer>,
-  "final_score": <integer 0-${maxMarks}>,
-  "max_score": ${maxMarks},
-  "confidence": <float 0-1>,
-  "feedback_summary": "<overall feedback in 2-3 sentences>",
-  "breakdown": [
-    {
-      "question": <number>,
-      "label": "<short question label>",
-      "score": <integer>,
-      "max": <integer>,
-      "comment": "<one sentence feedback>"
-    }
-  ]
-}`;
+  return prompt;
 }
 
 /**
  * Call the Grok API and return the parsed JSON result.
  */
-async function callGrok(prompt) {
+async function callGrok(prompt, model, temperature) {
   const apiKey = process.env.GROK_API_KEY;
   if (!apiKey) throw new Error('GROK_API_KEY is not set in environment variables');
 
@@ -131,10 +126,10 @@ async function callGrok(prompt) {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: GROK_MODEL,
+      model: model || 'grok-3',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2, // low temp for consistent grading
-      max_tokens: 2048,
+      temperature: temperature !== undefined ? Number(temperature) : 0.2,
+      max_tokens: 3000, // increased for richer response
     }),
   });
 
@@ -167,6 +162,28 @@ async function processGradingJob(job) {
   const { submissionId } = job.data;
   console.log(`[GradingWorker] Processing job ${job.id} for submission ${submissionId}`);
 
+  // Fetch AI Config from DB
+  const { data: configData, error: configErr } = await supabaseAdmin
+    .from('system_config')
+    .select('value')
+    .eq('key', 'ai_engine')
+    .single();
+
+  if (configErr && configErr.code !== 'PGRST116') {
+    throw new Error(`Failed to fetch AI configuration: ${configErr.message}`);
+  }
+
+  const aiConfig = configData?.value || {
+    primary_model: 'grok-3',
+    temperature: 0.2,
+    is_active: true,
+    system_prompt: "You are an expert academic grading assistant. Use a {{strictnessLabel}} grading approach...\n\nANSWER KEY (reference solution):\n---\n{{answerKeyText}}\n---\n\nSTUDENT SUBMISSION:\n---\n{{submissionText}}\n---\n\nTotal marks available: {{maxMarks}}\n\nRespond ONLY with valid JSON..." // fallback minimum
+  };
+
+  if (aiConfig.is_active === false) {
+    throw new Error('AI Engine is globally disabled. Job aborted and kept in queue for retry.');
+  }
+
   await job.updateProgress(5);
 
   // ── 1. Fetch submission + assignment ──────────────────────────────────────
@@ -187,14 +204,13 @@ async function processGradingJob(job) {
   }
 
   if (!assignment.answer_key_pdf_url) {
-    // Fallback: use the assignment description as the answer key
     console.warn('[GradingWorker] No answer_key_pdf_url — using assignment description as key');
   }
 
   await job.updateProgress(15);
 
-  // ── 2. Download PDFs ──────────────────────────────────────────────────────
-  console.log('[GradingWorker] Downloading submission PDF...');
+  // ── 2. Download files ─────────────────────────────────────────────────────
+  console.log('[GradingWorker] Downloading submission file...');
   const submissionBuffer = await downloadBuffer('submissions', submission.file_url);
 
   let answerKeyBuffer = null;
@@ -205,7 +221,7 @@ async function processGradingJob(job) {
 
   await job.updateProgress(30);
 
-  // ── 3. Extract text (with OCR fallback) ───────────────────────────────────
+  // ── 3. Extract text (with OCR fallback for scanned PDFs and images) ────────
   console.log('[GradingWorker] Extracting text from submission...');
   const submissionText = await extractText(submissionBuffer, submission.file_url);
 
@@ -226,13 +242,14 @@ async function processGradingJob(job) {
   // ── 4. Call Grok ──────────────────────────────────────────────────────────
   console.log('[GradingWorker] Calling Grok API...');
   const prompt = buildPrompt({
+    basePrompt: aiConfig.system_prompt,
     answerKeyText,
     submissionText,
     maxMarks: assignment.max_marks || 100,
     aiStrictness: assignment.ai_strictness || 50,
   });
 
-  const aiResult = await callGrok(prompt);
+  const aiResult = await callGrok(prompt, aiConfig.primary_model, aiConfig.temperature);
   console.log(`[GradingWorker] Grok responded — score: ${aiResult.final_score}/${aiResult.max_score}`);
 
   await job.updateProgress(80);
@@ -243,8 +260,15 @@ async function processGradingJob(job) {
     .upsert(
       {
         submission_id: submissionId,
+        ai_score: aiResult.final_score,
         final_score: aiResult.final_score,
         feedback_summary: aiResult.feedback_summary,
+        grammar_score: aiResult.grammar_score ?? null,
+        unanswered_questions: aiResult.unanswered_questions || [],
+        improvement_suggestions: aiResult.improvement_suggestions || [],
+        correct_answers: aiResult.correct_answers || [],
+        incorrect_answers: aiResult.incorrect_answers || [],
+        ocr_text: submissionText, // store extracted text for teacher reference
         detailed_analysis: {
           total_questions: aiResult.total_questions,
           questions_answered: aiResult.questions_answered,

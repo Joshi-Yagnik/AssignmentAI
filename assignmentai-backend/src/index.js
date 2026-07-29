@@ -12,6 +12,8 @@ const adminRoutes = require('./routes/admin.routes');
 const usersRoutes = require('./routes/users.routes');
 const storageRoutes = require('./routes/storage.routes');
 const vivaRoutes = require('./routes/viva.routes');
+const materialRoutes = require('./routes/material.routes');
+const requestsRoutes = require('./routes/requests.routes');
 
 // Start background grading worker (BullMQ + Redis)
 require('./workers/gradingWorker');
@@ -31,6 +33,8 @@ app.use('/api/storage', storageRoutes);
 app.use('/api/admin/users', usersRoutes);  // must be before /api/admin
 app.use('/api/admin', adminRoutes);
 app.use('/api/viva', vivaRoutes);
+app.use('/api/materials', materialRoutes);
+app.use('/api/requests', requestsRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -56,6 +60,9 @@ const io = new Server(server, {
 // Pass io to our socket handler
 require('./sockets/vivaSocket')(io);
 
+// Make io accessible in routes via req.app.get('io')
+app.set('io', io);
+
 // ── Ensure Supabase Storage buckets exist ─────────────────────────────────────
 async function ensureStorageBuckets() {
   const supabaseAdmin = require('./config/supabaseAdmin');
@@ -63,6 +70,7 @@ async function ensureStorageBuckets() {
     { name: 'question-papers', public: true  },
     { name: 'answer-keys',     public: false },
     { name: 'submissions',     public: false },
+    { name: 'study-materials', public: true  },
   ];
 
   for (const bucket of buckets) {

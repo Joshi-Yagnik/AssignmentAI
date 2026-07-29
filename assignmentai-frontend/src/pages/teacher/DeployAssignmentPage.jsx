@@ -138,7 +138,19 @@ export default function DeployAssignmentPage() {
   const [form, setForm] = useState({
     title: '', subject_id: '', deadline: '', time: '23:59',
     instructions: '', total_questions: 10, grading_mode: 'ai_teacher',
+    max_marks: 100,
   });
+
+  const ALL_FORMATS = [
+    { label: 'PDF',   value: '.pdf' },
+    { label: 'DOCX',  value: '.docx' },
+    { label: 'DOC',   value: '.doc' },
+    { label: 'PNG',   value: '.png' },
+    { label: 'JPG',   value: '.jpg' },
+    { label: 'JPEG',  value: '.jpeg' },
+  ];
+  const [allowedFormats, setAllowedFormats] = useState(['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg']);
+  const [allowResubmission, setAllowResubmission] = useState(true);
   const [errors, setErrors] = useState({});
 
   // Subjects for dropdown
@@ -224,10 +236,15 @@ export default function DeployAssignmentPage() {
         ai_strictness:      strictness,
         require_viva:       vivaReq,
         plagiarism_check:   plagCheck,
+        max_marks:          Number(form.max_marks) || 100,
+        allowed_formats:    allowedFormats,
+        allow_resubmission: allowResubmission,
       });
       toast({ type: 'success', title: 'Assignment Deployed!', message: `"${form.title}" is now live for students.` });
       // Reset
-      setForm({ title: '', subject_id: '', deadline: '', time: '23:59', instructions: '', total_questions: 10, grading_mode: 'ai_teacher' });
+      setForm({ title: '', subject_id: '', deadline: '', time: '23:59', instructions: '', total_questions: 10, grading_mode: 'ai_teacher', max_marks: 100 });
+      setAllowedFormats(['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg']);
+      setAllowResubmission(true);
       setQFile(null); setQUrl(''); setAFile(null); setAUrl('');
     } catch (err) {
       toast({ type: 'error', title: err.message || 'Deploy failed' });
@@ -314,6 +331,62 @@ export default function DeployAssignmentPage() {
                 <option value="ai_only">AI Only</option>
                 <option value="teacher_only">Teacher Only</option>
               </select>
+            </div>
+          </div>
+
+          {/* ── Section 2: Submission Settings ─────────────────────────── */}
+          <div className="card flex flex-col gap-5">
+            <SectionLabel>Submission Settings</SectionLabel>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="label">Total Marks</label>
+                <input
+                  type="number" min={1} max={1000} className="input"
+                  value={form.max_marks}
+                  onChange={set('max_marks')}
+                  placeholder="e.g. 100"
+                />
+              </div>
+              <div className="flex items-center justify-between pt-6">
+                <label htmlFor="allow-resub" className="flex items-center gap-2 text-label-md text-ink-primary cursor-pointer">
+                  <BookOpen className="w-4 h-4 text-primary" /> Allow Resubmission Before Deadline
+                </label>
+                <ToggleSwitch
+                  checked={allowResubmission}
+                  onChange={setAllowResubmission}
+                  id="allow-resub"
+                  ariaLabel="Allow resubmission"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Accepted File Formats</label>
+              <div className="flex flex-wrap gap-3 mt-1">
+                {ALL_FORMATS.map(fmt => {
+                  const checked = allowedFormats.includes(fmt.value);
+                  return (
+                    <button
+                      key={fmt.value}
+                      type="button"
+                      onClick={() => setAllowedFormats(prev =>
+                        checked ? prev.filter(f => f !== fmt.value) : [...prev, fmt.value]
+                      )}
+                      className={`px-4 py-1.5 rounded-full text-label-sm font-semibold border transition-all ${
+                        checked
+                          ? 'bg-primary text-white border-primary shadow-sm'
+                          : 'bg-surface border-border text-ink-secondary hover:border-primary/50'
+                      }`}
+                    >
+                      {fmt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-label-sm text-ink-muted mt-2">
+                Students can only upload files matching the selected formats.
+              </p>
             </div>
           </div>
 

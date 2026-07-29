@@ -2,32 +2,54 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
+import api from '../../services/api';
 import { getMySubmissions } from '../../services/assignmentService';
 import { BarChart3, TrendingUp, Award, Target, ChevronRight } from 'lucide-react';
 
 export default function StudentGradesPage() {
   const toast = useToast();
   const navigate = useNavigate();
-  const [submissions, setSubmissions] = useState([]);
+  const [gradesList, setGradesList] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await getMySubmissions();
-      // Keep only graded ones with a report
-      const graded = (data || []).filter(sub => sub.status === 'graded');
       
-      // Let's also fetch the reports if possible, but actually we can't easily fetch all reports at once 
-      // without modifying the backend. So we will mock the final scores if we don't have them in the submission object.
-      // Wait, in submission routes, /submissions/me DOES NOT join ai_reports.
-      // To show real scores, we'd need them. For now, let's use a mock score for the UI if it's not present, 
-      // or we can just fetch /reports/submission/:id one by one if there are few.
-      // Let's use a dynamic mock score based on the submission ID for visual consistency,
-      // since the backend doesn't return the score in the /me endpoint right now.
-      
-      setSubmissions(graded);
-    } catch {
+      const [subsData, vivasData] = await Promise.all([
+        getMySubmissions().catch(() => []),
+        api.get('/viva/sessions/me').then(r => r.data).catch(() => [])
+      ]);
+
+      // Normalize Assignments
+      const assignmentsGraded = (subsData || [])
+        .filter(sub => sub.status === 'graded' && sub.ai_reports?.length > 0)
+        .map(sub => ({
+          id: sub.id,
+          type: 'assignment',
+          title: sub.assignments?.title || 'Assignment',
+          date: new Date(sub.submitted_at),
+          score: sub.ai_reports[0].final_score || 0,
+          max: sub.assignments?.max_marks || 100,
+        }));
+
+      // Normalize Vivas
+      const vivasGraded = (vivasData || [])
+        .filter(v => v.ai_report && v.ai_report.overall_score)
+        .map(v => ({
+          id: v.id,
+          type: 'viva',
+          title: `Viva: ${v.subject || 'Session'}`,
+          date: new Date(v.scheduled_time),
+          score: v.ai_report.overall_score || 0,
+          max: 100,
+        }));
+
+      const combined = [...assignmentsGraded, ...vivasGraded].sort((a, b) => b.date - a.date);
+      setGradesList(combined);
+
+    } catch (err) {
+      console.error(err);
       toast({ type: 'error', title: 'Failed to load grades' });
     } finally {
       setLoading(false);
@@ -36,21 +58,22 @@ export default function StudentGradesPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Generate deterministic mock scores based on ID length/characters for a "pro" look
-  const getScore = (sub) => {
-    // Generate a consistent pseudo-random score between 65 and 98
-    const hash = sub.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    return 65 + (hash % 34); 
-  };
+  const totalGraded = gradesList.length;
+  // Compute average scaled to 100
+  let avgScore = 0;
+  if (totalGraded > 0) {
+    const totalPercentage = gradesList.reduce((acc, item) => acc + (item.score / item.max) * 100, 0);
+    avgScore = Math.round(totalPercentage / totalGraded);
+  }
 
-  const totalGraded = submissions.length;
-  const avgScore = totalGraded > 0 
-    ? Math.round(submissions.reduce((acc, sub) => acc + getScore(sub), 0) / totalGraded)
+  // Get highest percentage score
+  const highestScore = totalGraded > 0 
+    ? Math.round(Math.max(...gradesList.map(item => (item.score / item.max) * 100))) 
     : 0;
 
-  // Mock trend data for the chart
-  const mockTrend = [65, 72, 70, 85, 82, 88, 91, avgScore || 85];
-  const highestScore = totalGraded > 0 ? Math.max(...submissions.map(getScore)) : 0;
+  // Build trend array (oldest to newest, max 8 items)
+  const trendList = [...gradesList].sort((a, b) => a.date - b.date).slice(-8);
+  const trendData = trendList.length > 0 ? trendList.map(item => Math.round((item.score / item.max) * 100)) : [0];
 
   return (
     <>
@@ -68,7 +91,7 @@ export default function StudentGradesPage() {
             <div className="relative z-10 flex items-start justify-between">
               <div>
                 <p className="text-primary-100 font-medium mb-1">Average Score</p>
-                <h3 className="text-4xl font-bold">{avgScore}<span className="text-xl text-primary-200">/100</span></h3>
+                <h3 className="text-4xl font-bold">{avgScore}<span className="text-xl text-primary-200">%</span></h3>
               </div>
               <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-md">
                 <Target className="w-5 h-5 text-white" />
@@ -79,7 +102,7 @@ export default function StudentGradesPage() {
           <div className="card flex items-center justify-between">
             <div>
               <p className="text-ink-muted text-label-sm font-medium mb-1">Highest Score</p>
-              <h3 className="text-3xl font-bold text-ink-primary">{highestScore}</h3>
+              <h3 className="text-3xl font-bold text-ink-primary">{highestScore}%</h3>
               <p className="text-success text-xs font-semibold flex items-center gap-1 mt-1">
                 <TrendingUp className="w-3 h-3" /> Top performance
               </p>
@@ -91,10 +114,10 @@ export default function StudentGradesPage() {
 
           <div className="card flex items-center justify-between">
             <div>
-              <p className="text-ink-muted text-label-sm font-medium mb-1">Assignments Graded</p>
+              <p className="text-ink-muted text-label-sm font-medium mb-1">Total Graded</p>
               <h3 className="text-3xl font-bold text-ink-primary">{totalGraded}</h3>
               <p className="text-ink-muted text-xs font-medium mt-1">
-                Across all subjects
+                Assignments & Vivas
               </p>
             </div>
             <div className="w-12 h-12 bg-surface-high rounded-xl flex items-center justify-center">
@@ -111,10 +134,10 @@ export default function StudentGradesPage() {
             <h2 className="text-headline-sm text-ink-primary">Recent Grades</h2>
             {loading ? (
               <div className="card h-40 animate-pulse flex items-center justify-center text-ink-muted">Loading grades...</div>
-            ) : submissions.length === 0 ? (
+            ) : gradesList.length === 0 ? (
               <div className="card flex flex-col items-center justify-center py-12 text-center border-dashed">
                 <Award className="w-12 h-12 text-ink-muted/30 mb-3" />
-                <p className="text-ink-secondary font-medium">No graded assignments yet</p>
+                <p className="text-ink-secondary font-medium">No graded items yet</p>
                 <p className="text-label-sm text-ink-muted mt-1">Your scores will appear here once teachers publish them.</p>
               </div>
             ) : (
@@ -122,35 +145,39 @@ export default function StudentGradesPage() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-surface-low border-b border-border text-label-sm text-ink-muted">
-                      <th className="py-3 px-4 font-medium">Assignment</th>
-                      <th className="py-3 px-4 font-medium">Submitted</th>
+                      <th className="py-3 px-4 font-medium">Title</th>
+                      <th className="py-3 px-4 font-medium">Date</th>
                       <th className="py-3 px-4 font-medium text-right">Score</th>
                       <th className="py-3 px-4 font-medium"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {submissions.map((sub, i) => {
-                      const score = getScore(sub);
-                      const isHigh = score >= 80;
+                    {gradesList.map((item) => {
+                      const percentage = Math.round((item.score / item.max) * 100);
+                      const isHigh = percentage >= 80;
                       return (
-                        <tr key={sub.id} className="border-b border-border last:border-0 hover:bg-surface-low/50 transition-colors">
+                        <tr key={`${item.type}-${item.id}`} className="border-b border-border last:border-0 hover:bg-surface-low/50 transition-colors">
                           <td className="py-3 px-4">
-                            <p className="font-semibold text-ink-primary text-sm line-clamp-1">{sub.assignments?.title}</p>
+                            <p className="font-semibold text-ink-primary text-sm line-clamp-1">{item.title}</p>
+                            <p className="text-xs text-ink-muted uppercase tracking-wide mt-0.5">{item.type}</p>
                           </td>
                           <td className="py-3 px-4 text-sm text-ink-secondary">
-                            {new Date(sub.submitted_at).toLocaleDateString()}
+                            {item.date.toLocaleDateString()}
                           </td>
                           <td className="py-3 px-4 text-right">
                             <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                              isHigh ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
+                              isHigh ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning-text'
                             }`}>
-                              {score}/100
+                              {item.score}/{item.max}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
                             <button 
                               className="btn btn-ghost btn-sm text-primary"
-                              onClick={() => navigate(`/student/ai-grading/${sub.id}`)}
+                              onClick={() => {
+                                if (item.type === 'assignment') navigate(`/student/ai-grading/${item.id}`);
+                                else navigate(`/student/viva/report/${item.id}`);
+                              }}
                             >
                               Report <ChevronRight className="w-4 h-4" />
                             </button>
@@ -171,7 +198,7 @@ export default function StudentGradesPage() {
               <p className="text-label-sm text-ink-muted mb-6">Your score trajectory over the last 8 assignments.</p>
               
               <div className="flex items-end justify-between gap-1 h-32 mb-2">
-                {mockTrend.map((val, i) => (
+                {trendData.map((val, i) => (
                   <div key={i} className="relative flex-1 flex items-end justify-center group">
                     <div 
                       className="w-full max-w-[24px] bg-primary-100 rounded-t-sm transition-all group-hover:bg-primary-300" 

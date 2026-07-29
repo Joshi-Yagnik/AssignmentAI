@@ -26,11 +26,11 @@ export default function TeacherAnalyticsPage() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [assignmentStats, setAssignmentStats] = useState({});
+  const [accuracyTrend, setAccuracyTrend] = useState([]);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      // Load assignments + student list in parallel
       const [assignmentsData, studentsRes] = await Promise.all([
         getAssignments(),
         api.get('/submissions/teacher/students'),
@@ -39,8 +39,10 @@ export default function TeacherAnalyticsPage() {
       setAssignments(assignmentsData || []);
       setStudents(studentsRes.data || []);
 
-      // For each assignment, fetch submission stats
+      // For each assignment, fetch submission stats + compute AI accuracy
       const statsMap = {};
+      const accuracyPoints = [];
+
       await Promise.all(
         (assignmentsData || []).map(async (a) => {
           try {
@@ -50,17 +52,33 @@ export default function TeacherAnalyticsPage() {
             const avgScore = graded.length > 0
               ? Math.round(graded.reduce((acc, s) => acc + s.ai_reports[0].final_score, 0) / graded.length)
               : null;
-            statsMap[a.id] = {
-              submissionCount: list.length,
-              gradedCount: graded.length,
-              avgScore,
-            };
+
+            // AI Accuracy: how close was AI score vs teacher-overridden final_score?
+            // If ai_score and final_score differ, teacher corrected it.
+            const maxMarks = a.max_marks || 100;
+            const withAiScore = graded.filter(s => s.ai_reports[0].ai_score !== null && s.ai_reports[0].ai_score !== undefined);
+            let avgAccuracy = null;
+            if (withAiScore.length > 0) {
+              const totalAccuracy = withAiScore.reduce((acc, s) => {
+                const diff = Math.abs((s.ai_reports[0].ai_score || 0) - (s.ai_reports[0].final_score || 0));
+                const accuracy = Math.max(0, 100 - (diff / maxMarks) * 100);
+                return acc + accuracy;
+              }, 0);
+              avgAccuracy = Math.round(totalAccuracy / withAiScore.length);
+            }
+
+            statsMap[a.id] = { submissionCount: list.length, gradedCount: graded.length, avgScore };
+            if (avgAccuracy !== null) {
+              accuracyPoints.push({ title: a.title?.slice(0, 20) || 'Assignment', accuracy: avgAccuracy });
+            }
           } catch {
             statsMap[a.id] = { submissionCount: 0, gradedCount: 0, avgScore: null };
           }
         })
       );
+
       setAssignmentStats(statsMap);
+      setAccuracyTrend(accuracyPoints);
     } catch {
       toast({ type: 'error', title: 'Failed to load analytics' });
     } finally {
@@ -78,6 +96,9 @@ export default function TeacherAnalyticsPage() {
     : 0;
   const studentsWithGrades = students.filter(s => s.avg_score !== null);
   const atRiskCount = studentsWithGrades.filter(s => s.avg_score < 60).length;
+  const overallAccuracy = accuracyTrend.length > 0
+    ? Math.round(accuracyTrend.reduce((acc, p) => acc + p.accuracy, 0) / accuracyTrend.length)
+    : null;
 
   // Score distribution buckets from real student average scores
   const buckets = [
@@ -253,6 +274,106 @@ export default function TeacherAnalyticsPage() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* AI Accuracy Trend + Student Leaderboard */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          {/* AI Grading Accuracy Trend */}
+          <div className="lg:col-span-2 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-headline-sm text-ink-primary">AI Grading Accuracy Trend</h2>
+              {overallAccuracy !== null && (
+                <span className="text-label-sm font-semibold text-success bg-success/10 px-2.5 py-1 rounded-full">
+                  Overall: {overallAccuracy}% accurate
+                </span>
+              )}
+            </div>
+            <div className="card flex flex-col">
+              {loading ? (
+                <div className="h-40 animate-pulse bg-surface-high rounded" />
+              ) : accuracyTrend.length === 0 ? (
+                <div className="h-40 flex flex-col items-center justify-center text-center">
+                  <LineChart className="w-10 h-10 text-ink-muted/20 mb-2" />
+                  <p className="text-ink-muted text-sm">No graded data yet.</p>
+                  <p className="text-ink-muted text-xs mt-1">Accuracy appears here after AI grades submissions and teachers review them.</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-label-sm text-ink-muted mb-4">
+                    Measures how close the AI score was to the teacher's final score, per assignment.
+                  </p>
+                  <div className="flex items-end justify-between gap-3 h-40 mb-3">
+                    {accuracyTrend.map((point, i) => (
+                      <div key={i} className="relative flex-1 flex flex-col items-center justify-end group h-full">
+                        <div className="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-semibold text-ink-primary bg-surface border border-border rounded px-1.5 py-0.5 whitespace-nowrap z-10">
+                          {point.accuracy}%
+                        </div>
+                        <div
+                          className={`w-full max-w-[32px] rounded-t-sm shadow-sm transition-all ${
+                            point.accuracy >= 90 ? 'bg-success' : point.accuracy >= 70 ? 'bg-primary' : 'bg-warning'
+                          }`}
+                          style={{ height: `${Math.max(point.accuracy, 4)}%` }}
+                        />
+                        <span className="text-[10px] font-medium text-ink-muted mt-2 text-center line-clamp-1 w-full">
+                          {point.title}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-4 mt-2 text-xs text-ink-muted">
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-success inline-block"/>≥ 90% excellent</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-primary inline-block"/>70–89% good</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-warning inline-block"/>{'< 70%'} needs review</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Student Leaderboard */}
+          <div className="flex flex-col gap-4">
+            <h2 className="text-headline-sm text-ink-primary">Top Students</h2>
+            <div className="card flex-1 flex flex-col">
+              {loading ? (
+                <div className="flex flex-col gap-3">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="h-10 animate-pulse bg-surface-high rounded" />
+                  ))}
+                </div>
+              ) : studentsWithGrades.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center py-8">
+                  <Users className="w-10 h-10 text-ink-muted/20 mb-2" />
+                  <p className="text-ink-muted text-sm">No ranked students yet.</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {[...studentsWithGrades]
+                    .sort((a, b) => (b.avg_score || 0) - (a.avg_score || 0))
+                    .slice(0, 5)
+                    .map((s, i) => (
+                      <div key={s.id} className="flex items-center gap-3">
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                          i === 0 ? 'bg-yellow-100 text-yellow-700' :
+                          i === 1 ? 'bg-surface-high text-ink-secondary' :
+                          i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-surface-low text-ink-muted'
+                        }`}>{i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-ink-primary truncate">
+                            {s.first_name} {s.last_name}
+                          </p>
+                          <p className="text-xs text-ink-muted">{s.submission_count} submission{s.submission_count !== 1 ? 's' : ''}</p>
+                        </div>
+                        <span className={`text-sm font-bold ${
+                          s.avg_score >= 80 ? 'text-success' : s.avg_score >= 60 ? 'text-warning-text' : 'text-danger'
+                        }`}>{s.avg_score}%</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+
         </div>
 
       </main>

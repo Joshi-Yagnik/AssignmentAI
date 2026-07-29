@@ -56,13 +56,27 @@ export default function TeacherDashboard() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [assignmentsRes, submissionsRes, vivasRes, studentsRes] = await Promise.all([
+        // Use Promise.allSettled so one failing endpoint doesn't crash the dashboard
+        const results = await Promise.allSettled([
           getAssignments(),
           getPendingSubmissions(),
           api.get('/viva/sessions'),
           api.get('/submissions/teacher/students'),
         ]);
-        
+
+        const assignmentsRes = results[0].status === 'fulfilled' ? results[0].value : [];
+        const submissionsRes = results[1].status === 'fulfilled' ? results[1].value : [];
+        const vivasRes       = results[2].status === 'fulfilled' ? results[2].value : { data: [] };
+        const studentsRes    = results[3].status === 'fulfilled' ? results[3].value : { data: [] };
+
+        // Log any individual failures for debugging
+        const labels = ['assignments', 'submissions', 'vivas', 'students'];
+        results.forEach((r, i) => {
+          if (r.status === 'rejected') {
+            console.warn(`[TeacherDashboard] Failed to load ${labels[i]}:`, r.reason?.message || r.reason);
+          }
+        });
+
         // Compute active assignments
         const activeAssignments = assignmentsRes.length;
         
@@ -78,7 +92,7 @@ export default function TeacherDashboard() {
             status: v.status === 'scheduled' ? 'upcoming' : v.status,
             date: new Date(v.scheduled_time).toLocaleDateString(),
             time: new Date(v.scheduled_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            students: meta.questions?.length || 1, // Fallback placeholder
+            students: v.total_questions || meta.questions?.length || 1, // Fallback placeholder
           };
         }).slice(0, 5));
 
@@ -149,6 +163,12 @@ export default function TeacherDashboard() {
           totalStudents: studentList.length,
         });
 
+        // Show a warning if some data couldn't be loaded
+        const failedCount = results.filter(r => r.status === 'rejected').length;
+        if (failedCount > 0) {
+          toast({ type: 'warning', title: `${failedCount} data source(s) unavailable`, message: 'Some dashboard sections may show partial data.' });
+        }
+
       } catch (err) {
         toast({ type: 'error', title: 'Failed to load dashboard data' });
       } finally {
@@ -204,7 +224,7 @@ export default function TeacherDashboard() {
         subtitle={new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         showSearch
         actions={
-          <button className="btn-primary btn-sm" onClick={() => navigate('/teacher/deploy')}>
+          <button className="btn-primary btn-sm" onClick={() => navigate('/teacher/assignments')}>
             <Plus className="w-4 h-4" /> New Assignment
           </button>
         }

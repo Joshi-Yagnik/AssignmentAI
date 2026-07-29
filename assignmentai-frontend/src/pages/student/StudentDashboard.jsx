@@ -6,14 +6,16 @@ import Modal from '../../components/shared/Modal';
 import { useToast } from '../../components/shared/Toast';
 import { useAuth } from '../../context/AuthContext';
 import { getStudentAssignments } from '../../services/assignmentService';
+import { getMaterials } from '../../services/materialService';
+import api from '../../services/api';
 import { useNavigate } from 'react-router-dom';
+import io from 'socket.io-client';
 import {
   BookOpen, CheckCircle, Clock, Star, Video,
   Upload, ChevronRight, Zap, File as FileIcon, X
 } from 'lucide-react';
-import {
-  VIVA_SESSIONS
-} from '../../data/mockData';
+
+const SOCKET_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
 function StatCard({ icon: Icon, label, value, sub, color }) {
   return (
@@ -45,24 +47,84 @@ export default function StudentDashboard() {
   
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [upcomingViva, setUpcomingViva] = useState(null);
+  
+  const [recentMaterials, setRecentMaterials] = useState([]);
+  const [viewedMaterials, setViewedMaterials] = useState([]);
 
   useEffect(() => {
-    const fetchAssignments = async () => {
+    // Load viewed materials state
+    setViewedMaterials(JSON.parse(localStorage.getItem('viewed_materials') || '[]'));
+  }, []);
+
+  useEffect(() => {
+    // Socket setup
+    const socket = io(SOCKET_URL);
+    socket.on('new_study_material', (material) => {
+      setRecentMaterials(prev => [material, ...prev].slice(0, 5)); // keep last 5
+      toast({ type: 'info', title: 'New Study Material uploaded!' });
+    });
+
+    return () => socket.disconnect();
+  }, [toast]);
+
+  useEffect(() => {
+    const fetchData = async () => {
       try {
-        const data = await getStudentAssignments();
-        const enriched = data.map(a => ({
-          ...a,
-          effectiveStatus: getEffectiveStatus(a),
-          courseLabel: a.subjects?.name || 'Unknown Course',
-        }));
-        setAssignments(enriched);
+        // Fetch assignments and viva sessions in parallel
+        const results = await Promise.allSettled([
+          getStudentAssignments(),
+          api.get('/viva/sessions'),
+          getMaterials(),
+        ]);
+
+        // Handle assignments
+        if (results[0].status === 'fulfilled') {
+          const data = results[0].value;
+          const enriched = data.map(a => ({
+            ...a,
+            effectiveStatus: getEffectiveStatus(a),
+            courseLabel: a.subjects?.name || 'Unknown Course',
+          }));
+          setAssignments(enriched);
+        } else {
+          toast({ type: 'error', title: 'Failed to load assignments' });
+        }
+
+        // Handle viva sessions — find the most relevant active session
+        if (results[1].status === 'fulfilled') {
+          const vivaSessions = results[1].value?.data || [];
+          // Prioritize live sessions, then scheduled ones
+          const activeSession = vivaSessions.find(s => s.status === 'live')
+            || vivaSessions.find(s => s.status === 'scheduled');
+          
+          if (activeSession) {
+            let meta = {};
+            try { meta = JSON.parse(activeSession.transcript || '{}'); } catch {}
+            const scheduledAt = activeSession.scheduled_time ? new Date(activeSession.scheduled_time) : null;
+            setUpcomingViva({
+              id: activeSession.id,
+              title: meta.title || 'Live Viva Session',
+              status: activeSession.status,
+              date: scheduledAt ? scheduledAt.toLocaleDateString() : '—',
+              time: scheduledAt ? scheduledAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—',
+              questionsCount: v.total_questions || meta.questions?.length || 0,
+            });
+          }
+        }
+        
+        // Handle materials
+        if (results[2].status === 'fulfilled') {
+          // just show top 3 recent on dashboard
+          setRecentMaterials(results[2].value.slice(0, 3));
+        }
       } catch (err) {
-        toast({ type: 'error', title: 'Failed to load assignments' });
+        toast({ type: 'error', title: 'Failed to load dashboard data' });
       } finally {
         setLoading(false);
       }
     };
-    fetchAssignments();
+    fetchData();
   }, [toast]);
 
   const stats = {
@@ -137,29 +199,72 @@ export default function StudentDashboard() {
           <StatCard icon={Star}        label="Average Grade"     value={`${stats.avgGrade}%`} color="bg-primary" />
         </div>
 
-        {/* Upcoming Viva alert */}
-        {VIVA_SESSIONS[0] && (
-          <div className="card border-l-4 border-l-danger flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4">
+        {/* Upcoming Viva alert — shows only when there's a real live/scheduled session */}
+        {upcomingViva && (
+          <div className={`card border-l-4 ${upcomingViva.status === 'live' ? 'border-l-danger' : 'border-l-primary'} flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-4`}>
             <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-danger-bg flex items-center justify-center shrink-0">
-                <Video className="w-5 h-5 text-danger" aria-hidden="true" />
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${upcomingViva.status === 'live' ? 'bg-danger-bg' : 'bg-primary-50'}`}>
+                <Video className={`w-5 h-5 ${upcomingViva.status === 'live' ? 'text-danger' : 'text-primary'}`} aria-hidden="true" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <p className="font-semibold text-ink-primary">{VIVA_SESSIONS[0].title}</p>
-                  <StatusBadge status="live" dot />
+                  <p className="font-semibold text-ink-primary">{upcomingViva.title}</p>
+                  <StatusBadge status={upcomingViva.status === 'live' ? 'live' : 'upcoming'} dot />
                 </div>
                 <p className="text-label-md text-ink-secondary">
-                  Scheduled: {VIVA_SESSIONS[0].date} at {VIVA_SESSIONS[0].time} · Countdown: 2h 15m
+                  {upcomingViva.status === 'live' ? 'Session is LIVE now!' : `Scheduled: ${upcomingViva.date} at ${upcomingViva.time}`}
+                  {upcomingViva.questionsCount > 0 && ` · ${upcomingViva.questionsCount} questions`}
                 </p>
               </div>
             </div>
             <button
-              className="btn-primary btn-sm shrink-0 w-full sm:w-auto justify-center"
-              onClick={() => toast({ type: 'success', title: 'Joining Viva…', message: 'Your camera will be requested.' })}
+              className={`btn-primary btn-sm shrink-0 w-full sm:w-auto justify-center ${upcomingViva.status === 'live' ? 'bg-danger hover:bg-danger/90' : ''}`}
+              onClick={() => navigate('/student/viva')}
             >
-              <Zap className="w-4 h-4" aria-hidden="true" /> Join Viva
+              <Zap className="w-4 h-4" aria-hidden="true" />
+              {upcomingViva.status === 'live' ? 'Join Now' : 'View Viva'}
             </button>
+          </div>
+        )}
+
+        {/* Recent Study Materials */}
+        {recentMaterials.length > 0 && (
+          <div className="card p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-border">
+              <h2 className="text-headline-sm flex items-center gap-2">
+                <FileIcon className="w-5 h-5 text-primary" /> Recent Study Materials
+              </h2>
+              <button 
+                onClick={() => navigate('/student/materials')}
+                className="text-label-sm text-primary hover:underline font-semibold"
+              >
+                View All
+              </button>
+            </div>
+            <div className="p-4 flex gap-4 overflow-x-auto snap-x hide-scrollbar">
+              {recentMaterials.map(mat => {
+                const isNew = !viewedMaterials.includes(mat.id);
+                return (
+                  <div key={mat.id} className="min-w-[280px] sm:min-w-[320px] snap-start card bg-surface p-4 flex flex-col hover:shadow-hover transition-shadow relative border border-border">
+                    {isNew && (
+                      <span className="absolute top-3 right-3 bg-primary text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded-full animate-pulse-soft">
+                        New
+                      </span>
+                    )}
+                    <h3 className="font-bold text-ink-primary text-md truncate pr-10">{mat.title}</h3>
+                    <p className="text-sm text-ink-muted mt-1 truncate">{mat.subjects?.name || 'General'}</p>
+                    <button 
+                      onClick={() => {
+                        navigate('/student/materials');
+                      }}
+                      className="btn-secondary btn-sm mt-4 self-start"
+                    >
+                      Open
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

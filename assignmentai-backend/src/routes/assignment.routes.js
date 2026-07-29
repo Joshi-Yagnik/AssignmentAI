@@ -24,10 +24,10 @@ router.get('/student', requireAuth, requireRole(['student']), async (req, res) =
 
     if (error) throw error;
 
-    // Fetch this student's submissions
+    // Fetch this student's submissions (including upload history)
     const { data: submissions, error: subError } = await supabase
       .from('submissions')
-      .select('*, ai_reports(final_score)')
+      .select('*, ai_reports(final_score), upload_history')
       .eq('student_id', studentId);
       
     if (subError) throw subError;
@@ -115,6 +115,9 @@ router.post('/', ...teacherOrAdmin, async (req, res) => {
       question_pdf_url,
       answer_key_pdf_url,
       subject_id,
+      max_marks,
+      allowed_formats,
+      allow_resubmission,
     } = req.body;
 
     if (!title || !subject_id || !deadline) {
@@ -132,6 +135,9 @@ router.post('/', ...teacherOrAdmin, async (req, res) => {
         answer_key_pdf_url: answer_key_pdf_url || null,
         subject_id,
         created_by: req.user.id,
+        max_marks: max_marks || 100,
+        allowed_formats: allowed_formats || ['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg'],
+        allow_resubmission: allow_resubmission !== undefined ? allow_resubmission : true,
       }])
       .select(`
         *,
@@ -160,6 +166,9 @@ router.put('/:id', ...teacherOrAdmin, async (req, res) => {
       question_pdf_url,
       answer_key_pdf_url,
       subject_id,
+      max_marks,
+      allowed_formats,
+      allow_resubmission,
     } = req.body;
 
     // Ownership check: teachers can only edit their own assignments
@@ -174,17 +183,22 @@ router.put('/:id', ...teacherOrAdmin, async (req, res) => {
       }
     }
 
+    const updatePayload = {
+      title,
+      instructions: instructions || null,
+      deadline,
+      total_questions: total_questions || null,
+      question_pdf_url: question_pdf_url || null,
+      answer_key_pdf_url: answer_key_pdf_url || null,
+      subject_id,
+    };
+    if (max_marks !== undefined) updatePayload.max_marks = max_marks;
+    if (allowed_formats !== undefined) updatePayload.allowed_formats = allowed_formats;
+    if (allow_resubmission !== undefined) updatePayload.allow_resubmission = allow_resubmission;
+
     const { data, error } = await supabase
       .from('assignments')
-      .update({
-        title,
-        instructions: instructions || null,
-        deadline,
-        total_questions: total_questions || null,
-        question_pdf_url: question_pdf_url || null,
-        answer_key_pdf_url: answer_key_pdf_url || null,
-        subject_id,
-      })
+      .update(updatePayload)
       .eq('id', req.params.id)
       .select(`
         *,

@@ -35,6 +35,65 @@ router.get('/submission/:submissionId', requireAuth, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /submission/:submissionId/question-override
+// Teacher overrides the score for a single question in the breakdown.
+// Automatically recalculates and saves the new final_score.
+// ─────────────────────────────────────────────────────────────────────────────
+router.patch('/submission/:submissionId/question-override', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
+  try {
+    const { submissionId } = req.params;
+    const { question, newScore } = req.body; // question = number, newScore = integer
+
+    if (question == null || newScore == null) {
+      return res.status(400).json({ error: 'question and newScore are required.' });
+    }
+
+    // Fetch current report
+    const { data: report, error: fetchErr } = await supabase
+      .from('ai_reports')
+      .select('id, final_score, detailed_analysis')
+      .eq('submission_id', submissionId)
+      .single();
+
+    if (fetchErr || !report) {
+      return res.status(404).json({ error: 'AI report not found.' });
+    }
+
+    // Update the specific question's score in breakdown
+    const analysis = report.detailed_analysis || {};
+    const breakdown = (analysis.breakdown || []).map(item => {
+      if (item.question === question) {
+        return { ...item, score: Number(newScore), teacher_override: true };
+      }
+      return item;
+    });
+
+    // Recalculate final score as sum of all breakdown scores
+    const newFinalScore = breakdown.reduce((sum, item) => sum + (item.score || 0), 0);
+
+    const updatedAnalysis = { ...analysis, breakdown };
+
+    // Save back to DB
+    const { data: updated, error: updateErr } = await supabase
+      .from('ai_reports')
+      .update({
+        detailed_analysis: updatedAnalysis,
+        final_score: newFinalScore,
+      })
+      .eq('submission_id', submissionId)
+      .select()
+      .single();
+
+    if (updateErr) throw updateErr;
+
+    res.json({ success: true, newFinalScore, report: updated });
+  } catch (err) {
+    console.error('[Report PATCH /question-override]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET job status for a submission — lightweight polling endpoint
 router.get('/submission/:submissionId/status', requireAuth, async (req, res) => {
   try {

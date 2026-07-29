@@ -171,13 +171,31 @@ export default function TeacherVivaMonitorPage() {
                   </div>
                 )}
 
-                <div className="bg-surface-low rounded-lg p-3 flex-1 min-h-[150px] border border-border">
-                  <p className="text-xs font-semibold text-ink-muted mb-2 flex items-center gap-1.5 uppercase tracking-wider">
+                <div className="bg-surface-low rounded-lg p-3 flex-1 min-h-[150px] border border-border overflow-y-auto max-h-[250px]">
+                  <p className="text-xs font-semibold text-ink-muted mb-3 flex items-center gap-1.5 uppercase tracking-wider sticky top-0 bg-surface-low pb-2">
                     <MessageSquare className="w-3.5 h-3.5" /> Live Transcript
                   </p>
-                  <p className="text-sm text-ink-primary italic leading-relaxed">
-                    {st.transcript || 'Waiting for student to speak...'}
-                  </p>
+                  <div className="flex flex-col gap-2">
+                    {(() => {
+                      if (!st.transcript || st.transcript === 'Waiting for student to speak...') {
+                        return <p className="text-sm text-ink-primary italic">{st.transcript}</p>;
+                      }
+                      try {
+                        const msgs = JSON.parse(st.transcript);
+                        if (!Array.isArray(msgs)) throw new Error('Not array');
+                        return msgs.map((m, idx) => (
+                          <div key={idx} className="flex flex-col mb-1">
+                            <span className="text-[10px] font-bold text-ink-muted uppercase">{m.role === 'ai' ? 'AI' : 'Student'}</span>
+                            <span className={`text-xs p-1.5 rounded ${m.role === 'ai' ? 'bg-primary-50 text-primary-800' : 'bg-surface-high text-ink-primary'}`}>
+                              {m.content}
+                            </span>
+                          </div>
+                        ));
+                      } catch (e) {
+                        return <p className="text-sm text-ink-primary">{st.transcript}</p>;
+                      }
+                    })()}
+                  </div>
                 </div>
 
                 {st.lastActive && (

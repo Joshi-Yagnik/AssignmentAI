@@ -84,7 +84,7 @@ router.get('/assignment/:assignmentId', requireAuth, requireRole(['teacher', 'ad
         file_url,
         student_id,
         users!submissions_student_id_fkey(first_name, last_name, email),
-        ai_reports(final_score, feedback_summary, generated_at)
+        ai_reports(ai_score, final_score, feedback_summary, generated_at)
       `)
       .eq('assignment_id', assignmentId)
       .order('submitted_at', { ascending: false });
@@ -118,7 +118,7 @@ router.get('/teacher/students', requireAuth, requireRole(['teacher', 'admin']), 
         assignment_id,
         users!submissions_student_id_fkey(id, first_name, last_name, email),
         assignments(id, title, created_by),
-        ai_reports(final_score)
+        ai_reports(ai_score, final_score)
       `)
       .order('submitted_at', { ascending: false });
 
@@ -191,7 +191,7 @@ router.get('/me', requireAuth, requireRole(['student']), async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('submissions')
-      .select('*, assignments(title, deadline)')
+      .select('*, upload_history, assignments(title, deadline, max_marks, allow_resubmission, allowed_formats), ai_reports(final_score)')
       .eq('student_id', req.user.id);
 
     if (error) throw error;
@@ -211,11 +211,57 @@ router.post('/', requireAuth, requireRole(['student']), async (req, res) => {
     const { assignment_id, file_url } = req.body;
     const student_id = req.user.id;
 
-    // Upsert submission (if user submits again, it overwrites previous)
+    // ── Fetch the assignment to check deadline and resubmission settings ─────
+    const { data: assignment, error: aErr } = await supabase
+      .from('assignments')
+      .select('deadline, allow_resubmission')
+      .eq('id', assignment_id)
+      .single();
+
+    if (aErr || !assignment) {
+      return res.status(404).json({ error: 'Assignment not found.' });
+    }
+
+    // ── Deadline check ────────────────────────────────────────────────────────
+    if (new Date() > new Date(assignment.deadline)) {
+      return res.status(400).json({ error: 'The submission deadline has passed. No more submissions are accepted.' });
+    }
+
+    // ── Check for an existing submission ─────────────────────────────────────
+    const { data: existing } = await supabase
+      .from('submissions')
+      .select('id, file_url, submitted_at, upload_history')
+      .eq('assignment_id', assignment_id)
+      .eq('student_id', student_id)
+      .maybeSingle();
+
+    // ── Resubmission guard ────────────────────────────────────────────────────
+    if (existing && !assignment.allow_resubmission) {
+      return res.status(400).json({ error: 'Resubmission is not allowed for this assignment.' });
+    }
+
+    // ── Build upload_history array ────────────────────────────────────────────
+    let history = existing?.upload_history || [];
+    if (existing?.file_url) {
+      // Push the old file into history before overwriting
+      history = [
+        ...history,
+        { file_url: existing.file_url, submitted_at: existing.submitted_at },
+      ];
+    }
+
+    // ── Upsert submission ─────────────────────────────────────────────────────
     const { data, error } = await supabase
       .from('submissions')
       .upsert(
-        { assignment_id, student_id, file_url, status: 'submitted', submitted_at: new Date() },
+        {
+          assignment_id,
+          student_id,
+          file_url,
+          status: 'submitted',
+          submitted_at: new Date().toISOString(),
+          upload_history: history,
+        },
         { onConflict: 'assignment_id, student_id' }
       )
       .select()

@@ -19,12 +19,7 @@ export async function getVivaQuestions(sessionId) {
   return data; // VivaQuestion[]
 }
 
-/**
- * Save/update student's answer for a specific question.
- * @param {string} sessionId
- * @param {string} questionId
- * @param {string} answer
- */
+/** Submit an answer to a question */
 export async function submitVivaAnswer(sessionId, questionId, answer) {
   const { data } = await api.post(`/viva/sessions/${sessionId}/answers`, {
     questionId,
@@ -36,7 +31,7 @@ export async function submitVivaAnswer(sessionId, questionId, answer) {
 /**
  * End the viva session (final submission).
  * @param {string} sessionId
- * @param {{ reason?: string }} options
+ * @param {object} options
  */
 export async function endVivaSession(sessionId, options = {}) {
   const { data } = await api.post(`/viva/sessions/${sessionId}/end`, options);
@@ -44,14 +39,29 @@ export async function endVivaSession(sessionId, options = {}) {
 }
 
 /**
- * Report a violation event (tab switch, blur, face-not-detected, etc.)
- * @param {string} sessionId
- * @param {string} type — 'tab_switch' | 'blur' | 'face_lost' | 'multi_person'
+ * Log a security violation during the viva session
  */
-export async function reportViolation(sessionId, type) {
+export async function logVivaViolation(sessionId, type) {
   try {
     await api.post(`/viva/sessions/${sessionId}/violations`, { type });
-  } catch (_) {
-    // Best-effort; don't block the UI
+  } catch {
+    // best effort logging
   }
+}
+
+/** Get next dynamic AI question */
+export async function getNextVivaQuestion(sessionId, transcriptMessages, currentQuestionCount) {
+  const { data } = await api.post(`/viva/sessions/${sessionId}/next-question`, {
+    transcriptMessages,
+    currentQuestionCount
+  });
+  return data;
+}
+
+/** Evaluate viva session */
+export async function evaluateVivaSession(sessionId, transcriptMessages) {
+  const { data } = await api.post(`/viva/sessions/${sessionId}/evaluate`, {
+    transcriptMessages
+  });
+  return data;
 }

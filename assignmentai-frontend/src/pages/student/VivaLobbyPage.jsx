@@ -10,11 +10,11 @@ function parseSessionMeta(session) {
     const meta = JSON.parse(session.transcript || '{}');
     return {
       title: meta.title || 'Live Viva Session',
-      duration: meta.duration_minutes || 45,
-      questions: meta.questions || [],
+      duration: session.duration_minutes || meta.duration_minutes || 45,
+      questionsCount: session.total_questions || meta.questions?.length || 5,
     };
   } catch {
-    return { title: 'Live Viva Session', duration: 45, questions: [] };
+    return { title: 'Live Viva Session', duration: 45, questionsCount: 5 };
   }
 }
 
@@ -131,7 +131,7 @@ export default function VivaLobbyPage() {
                       </p>
                     )}
                     <p className="text-label-sm text-ink-muted mt-0.5 flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5" /> {meta.duration} minutes · {meta.questions.length} questions
+                      <Clock className="w-3.5 h-3.5" /> {meta.duration} minutes · {meta.questionsCount} questions
                     </p>
                   </div>
 

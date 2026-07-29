@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useToast } from '../../components/shared/Toast';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Mic, MicOff, Camera as CameraIcon, CameraOff, Shield, AlertTriangle, ChevronRight, ChevronLeft, Lightbulb, Bot } from 'lucide-react';
+import { Mic, MicOff, Camera as CameraIcon, CameraOff, Shield, AlertTriangle, ChevronRight, MessageSquare, Bot, Volume2, VolumeX } from 'lucide-react';
 import api from '../../services/api';
+import { getNextVivaQuestion, evaluateVivaSession } from '../../services/vivaService';
 import io from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
 
@@ -24,13 +25,6 @@ function SecurityRow({ label, ok, warning }) {
   );
 }
 
-function Timer({ seconds }) {
-  const h = String(Math.floor(seconds / 3600)).padStart(2,'0');
-  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2,'0');
-  const s = String(seconds % 60).padStart(2,'0');
-  return <span className="font-mono text-xl md:text-2xl font-bold tracking-widest text-white" aria-label={`Time remaining: ${h} hours, ${m} minutes, ${s} seconds`}>{h}:{m}:{s}</span>;
-}
-
 export default function VivaExamPage() {
   const toast  = useToast();
   const navigate = useNavigate();
@@ -38,64 +32,66 @@ export default function VivaExamPage() {
   const location = useLocation();
   const { user } = useAuth();
   
-  // templateSessionId is the teacher's master session id — all students join that room
   const templateSessionId = location.state?.templateSessionId || sessionId;
   const studentName = user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email : 'Student';
 
-  // Fallback if no meta passed via state
-  const [meta, setMeta] = useState(location.state?.meta || { title: 'Live Viva', duration: 45, questions: [] });
+  // Session Meta
+  const [meta, setMeta] = useState({ title: 'AI Viva', duration_minutes: 30 });
+  const [totalQuestions, setTotalQuestions] = useState(5);
+  const [timeLeft, setTimeLeft] = useState(30 * 60);
+
+  // Chat State
+  const [messages, setMessages] = useState([]);
+  const [currentAiQuestion, setCurrentAiQuestion] = useState(null);
+  const [answer, setAnswer] = useState('');
+  const [questionCount, setQuestionCount] = useState(0);
+  const [loadingAI, setLoadingAI] = useState(true); // true initially to fetch first question
   
-  const [qIdx, setQIdx]       = useState(0);
-  const [answer, setAnswer]   = useState('');
+  // Media State
   const [micOn, setMicOn]     = useState(true);
   const [camOn, setCamOn]     = useState(true);
-  const [hints,  setHints]    = useState(2);
-  const [timeLeft, setTimeLeft] = useState(meta.duration * 60);
-  const [loading, setLoading] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
   const [streamError, setStreamError] = useState(false);
-
-  // Security / Violations
-  const [warnings, setWarnings] = useState(() => parseInt(sessionStorage.getItem(`viva_warnings_${sessionId}`) || '0', 10));
-  // Mock face tracking without local models
   const [faceStatus, setFaceStatus] = useState('Initializing...');
-  const [multipleFaces, setMultipleFaces] = useState(false);
+  const [warnings, setWarnings] = useState(0);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const socketRef = useRef(null);
   const recognitionRef = useRef(null);
 
+  // Helper to speak text
+  const speakText = useCallback((text) => {
+    if (!soundOn || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.95;
+    window.speechSynthesis.speak(utterance);
+  }, [soundOn]);
+
+  // Initial load: get session details & first question
   useEffect(() => {
-    // If we didn't get meta from navigation state, fetch from API
-    if (!meta.questions || meta.questions.length === 0) {
-      api.get(`/viva/sessions/${sessionId}`).then(({ data }) => {
-        if (data?.transcript) {
-          try {
-            const parsed = JSON.parse(data.transcript);
-            setMeta({
-              title: parsed.title || 'Live Viva',
-              duration: parsed.duration_minutes || 45,
-              questions: parsed.questions || [
-                { text: 'Define Artificial Intelligence and explain its key branches.', difficulty: 'easy' },
-                { text: 'What is explainability in AI, and why does it matter for high-stakes applications?', difficulty: 'hard' },
-              ],
-            });
-          } catch { /* use defaults */ }
-        }
-      }).catch(() => {
-        // Fallback defaults
-        setMeta({
-          title: 'Live Viva',
-          duration: 45,
-          questions: [
-            { text: 'Define Artificial Intelligence and explain its key branches.', difficulty: 'easy' },
-            { text: 'What is explainability in AI, and why does it matter for high-stakes applications?', difficulty: 'hard' },
-          ],
-        });
-      });
+    async function init() {
+      try {
+        const { data: session } = await api.get(`/viva/sessions/${sessionId}`);
+        const parsed = JSON.parse(session.transcript || '{}');
+        setMeta(parsed);
+        setTimeLeft((parsed.duration_minutes || 30) * 60);
+        setTotalQuestions(session.total_questions || 5);
+        
+        // Fetch first question
+        const result = await getNextVivaQuestion(sessionId, [], 0);
+        setCurrentAiQuestion(result.next_question);
+        setMessages([{ role: 'ai', content: result.next_question }]);
+        speakText(result.next_question);
+      } catch (err) {
+        toast({ type: 'error', title: 'Failed to initialize viva session' });
+      } finally {
+        setLoadingAI(false);
+      }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+    init();
+  }, [sessionId, speakText, toast]);
 
   // Timer
   useEffect(() => {
@@ -103,87 +99,26 @@ export default function VivaExamPage() {
     return () => clearInterval(t);
   }, []);
 
-  // Violation tracker (Tab switch)
-  const addWarning = useCallback((type) => {
-    setWarnings(prev => {
-      const nw = prev + 1;
-      sessionStorage.setItem(`viva_warnings_${sessionId}`, nw.toString());
-      if (socketRef.current) {
-        socketRef.current.emit('viva_warning', {
-          sessionId: templateSessionId,
-          socketId: socketRef.current.id,
-          studentName,
-          type,
-          timestamp: new Date()
-        });
-      }
-      
-      // Best effort API log
-      api.post(`/viva/sessions/${sessionId}/violations`, { type }).catch(()=>{});
-      
-      if (nw >= 3) {
-        toast({ type: 'error', title: 'Exam Terminated', message: 'Maximum security violations reached. Auto-submitting.' });
-        if (socketRef.current) socketRef.current.emit('end_viva', {
-          sessionId: templateSessionId,
-          socketId: socketRef.current.id,
-          studentName,
-        });
-        
-        // Final submit
-        api.post(`/viva/sessions/${sessionId}/answers`, {
-            transcript: answer,
-            warnings: nw,
-            status: 'terminated'
-        }).then(() => {
-            setTimeout(() => navigate('/student/viva'), 2000);
-        });
-
-      } else {
-        toast({ type: 'warning', title: 'Security Warning', message: `${type} detected. Warning ${nw}/3.` });
-      }
-      return nw;
-    });
-  }, [toast, navigate, answer, sessionId, templateSessionId, studentName]);
-
+  // WebRTC & Speech Recognition Setup
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') addWarning('Tab switch');
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [addWarning]);
-
-  // Sockets & WebRTC (No local models for face-api to prevent crashing)
-  useEffect(() => {
-    // 1. Connect Socket — join the TEMPLATE session room so teacher can monitor all students
     socketRef.current = io(SOCKET_URL);
-    socketRef.current.emit('join_viva', {
-      sessionId: templateSessionId,
-      studentName,
-      role: 'student',
-    });
+    socketRef.current.emit('join_viva', { sessionId: templateSessionId, studentName, role: 'student' });
 
-    // 2. Request Camera
     async function loadMedia() {
       try {
         setFaceStatus('Requesting camera...');
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
+        if (videoRef.current) videoRef.current.srcObject = stream;
         setStreamError(false);
-        setFaceStatus('Face ID: Verified ✓'); // Mock verification
+        setFaceStatus('Face ID: Verified ✓');
       } catch (err) {
-        console.error("Setup error:", err);
         setStreamError(true);
         setFaceStatus('Camera access denied');
-        toast({ type: 'error', title: 'Setup Failed', message: 'Please allow camera and microphone access to proceed.', duration: 6000 });
       }
     }
     loadMedia();
 
-    // 3. Setup Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
@@ -194,40 +129,24 @@ export default function VivaExamPage() {
       recognition.onresult = (event) => {
         let finalTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          }
+          if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
         }
-        
         if (finalTranscript) {
-          setAnswer(prev => {
-            const nextAns = prev + (prev ? ' ' : '') + finalTranscript;
-            if (socketRef.current) {
-               // Send to teacher monitor with student identity
-               socketRef.current.emit('viva_transcript_update', {
-                 sessionId: templateSessionId,
-                 socketId: socketRef.current.id,
-                 studentName,
-                 transcript: nextAns,
-               });
-            }
-            return nextAns;
-          });
+          setAnswer(prev => prev + (prev ? ' ' : '') + finalTranscript);
         }
       };
       
       recognition.start();
       recognitionRef.current = recognition;
-    } else {
-      toast({ type: 'warning', title: 'Speech-to-Text Unsupported', message: 'Your browser does not support Speech Recognition. Please type your answers.' });
     }
 
     return () => {
       if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
       if (recognitionRef.current) recognitionRef.current.stop();
       if (socketRef.current) socketRef.current.disconnect();
+      window.speechSynthesis.cancel();
     };
-  }, [toast, sessionId, templateSessionId, studentName]);
+  }, [sessionId, templateSessionId, studentName]);
 
   // Handle toggles
   useEffect(() => {
@@ -241,276 +160,207 @@ export default function VivaExamPage() {
     }
   }, [micOn, camOn]);
 
+  const handleSubmitAnswer = async () => {
+    if (!answer.trim()) return;
+    window.speechSynthesis.cancel();
+    setLoadingAI(true);
 
-  const handleNext = async () => {
-    setLoading(true);
-    try {
-      // Save progress
-      await api.post(`/viva/sessions/${sessionId}/answers`, {
-          transcript: answer,
-          warnings,
-          status: 'live'
+    const newMessages = [...messages, { role: 'student', content: answer.trim() }];
+    setMessages(newMessages);
+    setAnswer('');
+    
+    // Send temp state to socket for teacher to monitor
+    if (socketRef.current) {
+      socketRef.current.emit('viva_transcript_update', {
+        sessionId: templateSessionId,
+        studentName,
+        transcript: JSON.stringify(newMessages)
       });
-      toast({ type: 'success', title: 'Progress saved' });
+    }
+
+    try {
+      const result = await getNextVivaQuestion(sessionId, newMessages, questionCount + 1);
       
-      if (qIdx < meta.questions.length - 1) {
-          setQIdx(i => i + 1);
-          setAnswer('');
+      if (result.evaluation_of_last_answer) {
+        toast({ type: 'info', title: 'AI Feedback', message: result.evaluation_of_last_answer });
+      }
+
+      setQuestionCount(prev => prev + 1);
+
+      if (result.should_end) {
+        toast({ type: 'success', title: 'Viva Concluded', message: 'Generating final report...' });
+        await handleEvaluate(newMessages);
       } else {
-          handleEnd();
+        const nextQ = { role: 'ai', content: result.next_question };
+        setMessages([...newMessages, nextQ]);
+        setCurrentAiQuestion(result.next_question);
+        speakText(result.next_question);
       }
     } catch (err) {
-        toast({ type: 'error', title: 'Failed to save progress' });
+      toast({ type: 'error', title: 'Failed to communicate with AI' });
     } finally {
-      setLoading(false);
+      setLoadingAI(false);
     }
   };
 
-  const handleEnd = async () => {
-    toast({ type: 'info', title: 'Exam ended', message: 'Processing AI integrity check...' });
-    if (socketRef.current) socketRef.current.emit('end_viva', {
-      sessionId: templateSessionId,
-      socketId: socketRef.current?.id,
-      studentName,
-    });
-    
+  const handleEvaluate = async (finalMessages) => {
     try {
-      await api.post(`/viva/sessions/${sessionId}/answers`, {
-          transcript: answer,
-          warnings,
-          status: 'ended'
-      });
-      toast({ type: 'success', title: 'Integrity Report Saved' });
+      await evaluateVivaSession(sessionId, finalMessages);
+      navigate(`/student/viva/report/${sessionId}`);
     } catch (err) {
-      console.error(err);
-      toast({ type: 'error', title: 'Failed to save final transcript' });
+      toast({ type: 'error', title: 'Failed to generate report' });
+      navigate('/student/viva');
     }
-
-    navigate('/student/viva');
   };
-
-  const q = meta.questions[qIdx] || { text: 'Loading...', difficulty: 'easy' };
-  const DIFFICULTY_COLOR = { easy: 'text-success', medium: 'text-warning', hard: 'text-danger' };
-  const DIFFICULTY_BG    = { easy: 'bg-success-bg', medium: 'bg-warning-bg', hard: 'bg-danger-bg' };
 
   return (
     <div className="min-h-screen flex flex-col bg-surface">
       <header className="h-14 px-4 md:px-6 flex items-center justify-between bg-primary-950 shrink-0">
-        <div className="hidden sm:flex items-center gap-3">
-          <Bot className="w-5 h-5 text-primary-300" aria-hidden="true" />
+        <div className="flex items-center gap-3">
+          <Bot className="w-5 h-5 text-primary-300" />
           <span className="text-white font-bold text-sm">AssignmentAI</span>
-          <span className="text-primary-300 text-sm">·</span>
-          <span className="text-primary-200 text-sm">{meta.title} — Live Viva</span>
+          <span className="text-primary-300 text-sm hidden sm:inline">·</span>
+          <span className="text-primary-200 text-sm hidden sm:inline">{meta.title}</span>
         </div>
-        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-center">
+        <div className="flex items-center gap-4">
           <span className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-danger animate-pulse-dot" />
-            <span className="text-white/70 text-xs uppercase tracking-wide font-semibold">LIVE</span>
+            <span className="text-white/70 text-xs font-semibold">LIVE</span>
           </span>
-          <Timer seconds={timeLeft} />
-          <button
-            className="sm:hidden btn btn-sm bg-danger/20 text-danger border border-danger/40"
-            onClick={handleEnd}
-          >
-            End
-          </button>
-        </div>
-        <div className="hidden sm:flex items-center gap-3">
-          <span className="text-primary-200 text-sm">Student Session</span>
-          <button
-            className="btn btn-sm bg-danger/20 text-danger border border-danger/40 hover:bg-danger/30"
-            onClick={handleEnd}
-          >
-            End Exam
-          </button>
+          <span className="font-mono text-xl font-bold tracking-widest text-white">
+            {Math.floor(timeLeft / 60).toString().padStart(2, '0')}:{(timeLeft % 60).toString().padStart(2, '0')}
+          </span>
         </div>
       </header>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[280px_1fr_300px] gap-5 p-4 md:p-5 overflow-y-auto lg:overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 p-4 md:p-5 overflow-hidden">
+        
+        {/* Main Exam Area */}
+        <div className="flex flex-col gap-4 overflow-hidden h-full">
+          
+          {/* AI Interviewer View */}
+          <div className="card p-0 overflow-hidden flex-shrink-0 bg-primary-50 border-2 border-primary-100 flex flex-col items-center justify-center min-h-[200px] relative">
+            <div className="absolute top-4 right-4 flex items-center gap-2">
+              <button onClick={() => setSoundOn(!soundOn)} className="btn btn-ghost btn-sm text-primary-700 bg-white/50 hover:bg-white">
+                {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+              </button>
+            </div>
+            
+            <div className={`w-24 h-24 rounded-full flex items-center justify-center ${loadingAI ? 'bg-primary/20 animate-pulse' : 'bg-primary-100 border-4 border-primary-200 shadow-xl shadow-primary/20'}`}>
+              <Bot className={`w-12 h-12 ${loadingAI ? 'text-primary/50' : 'text-primary'}`} />
+            </div>
+            
+            <div className="mt-6 max-w-2xl text-center px-6">
+              {loadingAI ? (
+                <div className="flex items-center justify-center gap-2 text-primary-700 font-medium">
+                  <span className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                  AI is thinking...
+                </div>
+              ) : (
+                <p className="text-lg md:text-xl font-semibold text-primary-900 leading-relaxed">"{currentAiQuestion}"</p>
+              )}
+            </div>
+          </div>
 
-        {/* COL 1 — Camera & Audio */}
-        <div className="flex flex-col gap-4 order-1 lg:order-2">
-          <div className="card p-0 overflow-hidden bg-primary-950 flex-1 relative min-h-[250px] lg:min-h-[320px] rounded-2xl border-4 border-primary-900">
+          {/* Student Answer Area */}
+          <div className="card flex-1 flex flex-col gap-3 min-h-0">
+            <div className="flex items-center justify-between mb-1">
+              <label className="label mb-0 flex items-center gap-2">
+                Your Answer 
+                {micOn && !streamError && <span className="text-xs bg-success/10 text-success px-2 py-0.5 rounded-full animate-pulse flex items-center gap-1"><Mic className="w-3 h-3"/> Listening...</span>}
+              </label>
+              <div className="text-label-sm text-ink-muted">
+                Question {questionCount + 1} of {totalQuestions}
+              </div>
+            </div>
+            
+            <textarea
+              className="input resize-none flex-1 focus:ring-2 focus:ring-primary/40 text-base leading-relaxed"
+              value={answer}
+              onChange={e => setAnswer(e.target.value)}
+              placeholder={micOn ? "Speak your answer or type here..." : "Type your answer here..."}
+              disabled={loadingAI}
+            />
+
+            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setMicOn(!micOn)} 
+                  className={`btn btn-sm ${micOn ? 'bg-primary-50 text-primary-700' : 'bg-surface-high text-ink-muted'}`}
+                >
+                  {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                </button>
+              </div>
+              <button
+                className="btn-primary"
+                onClick={handleSubmitAnswer}
+                disabled={loadingAI || !answer.trim()}
+              >
+                Submit Answer <ChevronRight className="w-4 h-4 ml-1" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Sidebar */}
+        <div className="flex flex-col gap-4 overflow-y-auto">
+          {/* Student Camera */}
+          <div className="card p-0 overflow-hidden bg-black relative h-48 rounded-xl shrink-0">
             {camOn && !streamError ? (
               <>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="absolute inset-0 w-full h-full object-cover"
-                />
-                <div className="absolute inset-4 border-2 border-dashed border-white/20 rounded-xl pointer-events-none" />
-                
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                   <div className="w-32 h-40 border border-primary-400/50 bg-primary-900/10 rounded-xl" />
-                </div>
-                
-                <div className={`absolute top-4 left-4 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm rounded-lg px-2.5 py-1 z-10 ${faceStatus.includes('Lost') || faceStatus.includes('denied') ? 'border border-danger' : ''}`}>
-                  <span className={`w-2 h-2 rounded-full ${faceStatus.includes('Lost') || faceStatus.includes('denied') ? 'bg-danger' : 'bg-success'}`} />
-                  <span className={`text-xs font-medium ${faceStatus.includes('Lost') || faceStatus.includes('denied') ? 'text-danger-100' : 'text-white'}`}>{faceStatus}</span>
-                </div>
-                <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-black/60 backdrop-blur-sm rounded-lg px-2.5 py-1 z-10">
-                  <span className="text-white/80 text-xs">AI Analyzing</span>
-                  <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover -scale-x-100" />
+                <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 flex items-center gap-1.5 z-10 border border-white/10">
+                  <span className="w-1.5 h-1.5 rounded-full bg-success" />
+                  <span className="text-[10px] font-medium text-white">{faceStatus}</span>
                 </div>
               </>
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <CameraOff className="w-12 h-12 text-white/20" />
-                <p className="text-white/40 text-sm mt-2">{streamError ? 'Camera access denied' : 'Camera disabled'}</p>
+                <CameraOff className="w-8 h-8 text-white/30" />
               </div>
             )}
-          </div>
-
-          <div className="card py-3 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex items-end gap-[2px] h-6 w-16">
-                  {micOn && !streamError
-                    ? Array.from({ length: 12 }, (_, i) => (
-                        <div
-                          key={i}
-                          className="w-1 bg-primary rounded-full animate-pulse-dot"
-                          style={{ height: `${Math.random() * 100}%`, animationDelay: `${i * 100}ms` }}
-                        />
-                      ))
-                    : <span className="text-ink-muted text-xs">Mic off</span>
-                  }
-                </div>
-                <span className="text-label-sm text-ink-secondary hidden sm:inline">Microphone Active</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setMicOn(m => !m)} 
-                  className={`btn btn-sm ${micOn ? 'bg-primary-50 text-primary-700' : 'bg-surface-high text-ink-muted'}`}
-                  aria-label="Toggle Microphone"
-                >
-                  {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-                </button>
-                <button 
-                  onClick={() => setCamOn(c => !c)} 
-                  className={`btn btn-sm ${camOn ? 'bg-primary-50 text-primary-700' : 'bg-surface-high text-ink-muted'}`}
-                  aria-label="Toggle Camera"
-                >
-                  {camOn ? <CameraIcon className="w-4 h-4" /> : <CameraOff className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-            <p className="text-xs text-ink-muted italic truncate px-2 bg-surface-low rounded py-1">
-              Live Transcript streaming to monitor...
-            </p>
-          </div>
-        </div>
-
-        {/* COL 2 — Q&A */}
-        <div className="card flex flex-col gap-5 h-fit order-2 lg:order-2">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-ink-primary">Question Progress</h3>
-              <span className="text-label-sm text-ink-muted">{qIdx + 1}/{meta.questions.length}</span>
-            </div>
-            <div className="h-2 bg-surface-high rounded-full overflow-hidden">
-              <div className="h-full bg-indigo-gradient rounded-full transition-all duration-500"
-                   style={{ width: `${((qIdx + 1) / meta.questions.length) * 100}%` }} />
-            </div>
-          </div>
-
-          <div className="p-4 rounded-xl border-l-4 border-primary bg-primary-50">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-label-sm bg-primary text-white rounded-full px-2.5 py-0.5 font-semibold">
-                Question {qIdx + 1}
-              </span>
-              <span className={`text-label-sm rounded-full px-2.5 py-0.5 font-semibold
-                ${DIFFICULTY_BG[q.difficulty] || DIFFICULTY_BG.easy} ${DIFFICULTY_COLOR[q.difficulty] || DIFFICULTY_COLOR.easy}`}>
-                {q.difficulty ? q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1) : 'Unknown'}
-              </span>
-            </div>
-            <p className="text-ink-primary font-semibold text-sm leading-relaxed">{q.text}</p>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <label htmlFor="answer-box" className="label mb-0">Your Answer</label>
-              <span className="text-xs text-primary-700 font-medium bg-primary-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-                <Mic className="w-3 h-3" /> Voice-to-Text active
-              </span>
-            </div>
-            <div className="relative">
-              <textarea
-                id="answer-box"
-                className="input resize-none pr-8 focus:ring-2 focus:ring-primary/40"
-                rows={6}
-                value={answer}
-                onChange={e => setAnswer(e.target.value)}
-                placeholder="Speak clearly, or type your answer here…"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 mt-auto pt-2">
-            <button
-              className="btn btn-ghost btn-sm flex-1 justify-center"
-              disabled={qIdx === 0 || loading}
-              onClick={() => { setQIdx(i => i - 1); setAnswer(''); }}
+            <button 
+              onClick={() => setCamOn(!camOn)} 
+              className="absolute bottom-2 left-2 btn btn-sm bg-black/50 text-white hover:bg-black/80 border-none px-2"
             >
-              <ChevronLeft className="w-4 h-4" /> Prev
-            </button>
-            <button
-              className="btn-primary btn-sm flex-1 justify-center"
-              disabled={loading}
-              onClick={handleNext}
-            >
-              {loading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 
-               (qIdx === meta.questions.length - 1 ? 'Submit & End' : <>Next <ChevronRight className="w-4 h-4" /></>)}
+              {camOn ? <CameraIcon className="w-3.5 h-3.5" /> : <CameraOff className="w-3.5 h-3.5" />}
             </button>
           </div>
-        </div>
-        
-        {/* COL 3 — Security */}
-        <div className="flex flex-col gap-5 order-3 lg:order-3">
-          <div className="card flex flex-col gap-4 h-fit">
-            <h3 className="font-semibold text-ink-primary flex items-center gap-2">
-              <Shield className="w-4 h-4 text-primary" aria-hidden="true" /> Exam Security
+
+          <div className="card flex flex-col gap-3 shrink-0">
+            <h3 className="font-semibold text-ink-primary flex items-center gap-2 text-sm">
+              <Shield className="w-4 h-4 text-primary" /> Security
             </h3>
-            <SecurityRow label="Face Detected"  ok={faceStatus !== 'Camera access denied'} warning={faceStatus === 'Camera access denied' ? 'Lost' : null} />
-            <SecurityRow label="Single Person"  ok={!multipleFaces} warning={multipleFaces ? 'Multiple Faces' : null} />
-            <SecurityRow label="Audio Normal"   ok={micOn} warning={!micOn ? 'Muted' : null} />
-            
+            <SecurityRow label="Face Detected" ok={faceStatus !== 'Camera access denied'} />
+            <SecurityRow label="Audio Normal" ok={micOn} />
             <div className="pt-2 border-t border-border mt-1">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-label-sm text-warning-text font-semibold">Violations: {warnings}/3</span>
+                <span className="text-[10px] text-warning-text font-semibold uppercase tracking-wider">Violations: {warnings}/3</span>
               </div>
-              <div className="h-2 bg-surface-high rounded-full overflow-hidden">
+              <div className="h-1.5 bg-surface-high rounded-full overflow-hidden">
                 <div className="h-full bg-warning rounded-full transition-all" style={{ width: `${(warnings/3)*100}%` }} />
               </div>
-              <p className="text-xs text-ink-muted mt-2">Tab switching or multiple faces increments warnings. 3 warnings = auto termination.</p>
             </div>
           </div>
 
-          <div className="card bg-surface-low border border-border/50">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-label-sm font-semibold text-ink-primary flex items-center gap-1.5">
-                <Lightbulb className="w-4 h-4 text-warning" /> AI Assist
-              </h3>
-              <span className="text-xs text-ink-muted bg-white px-2 py-0.5 rounded-full shadow-sm border border-border">
-                {hints} remaining
-              </span>
+          {/* Chat History summary (optional) */}
+          <div className="card flex-1 flex flex-col gap-3 min-h-[200px]">
+            <h3 className="font-semibold text-ink-primary flex items-center gap-2 text-sm">
+              <MessageSquare className="w-4 h-4 text-primary" /> Transcript History
+            </h3>
+            <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3">
+              {messages.length === 0 && <p className="text-xs text-ink-muted italic">No messages yet.</p>}
+              {messages.map((m, i) => (
+                <div key={i} className={`flex flex-col ${m.role === 'ai' ? 'items-start' : 'items-end'}`}>
+                  <span className="text-[10px] font-bold text-ink-muted uppercase mb-0.5 ml-1 mr-1">{m.role === 'ai' ? 'AI Examiner' : 'You'}</span>
+                  <div className={`text-xs p-2 rounded-xl max-w-[90%] ${m.role === 'ai' ? 'bg-primary-50 text-primary-900 rounded-tl-sm' : 'bg-surface-high text-ink-primary rounded-tr-sm'}`}>
+                    {m.content}
+                  </div>
+                </div>
+              ))}
             </div>
-            <p className="text-xs text-ink-secondary leading-relaxed mb-3">
-              Stuck? Use a hint to get a conceptual push in the right direction. Points may be deducted.
-            </p>
-            <button
-              className="btn btn-sm w-full btn-ghost"
-              disabled={hints === 0}
-              onClick={() => {
-                setHints(h => h - 1);
-                toast({ type: 'info', title: 'Hint', message: 'Consider the ethical implications on privacy.', duration: 5000 });
-              }}
-            >
-              Reveal Hint
-            </button>
           </div>
+
         </div>
       </div>
     </div>

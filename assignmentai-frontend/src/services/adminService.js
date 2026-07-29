@@ -24,3 +24,12 @@ export const createUser     = (body)     => api.post('/admin/users', body).then(
 export const updateUser     = (id, body) => api.put(`/admin/users/${id}`, body).then(r => r.data);
 export const deleteUser     = (id)       => api.delete(`/admin/users/${id}`).then(r => r.data);
 export const bulkUploadUsers = (body)    => api.post('/admin/users/bulk', body).then(r => r.data);
+
+// ── AI ENGINE CONFIG ────────────────────────────────────────────────────────
+export const getAiConfig    = ()         => api.get('/admin/config/ai').then(r => r.data);
+export const updateAiConfig = (body)     => api.patch('/admin/config/ai', body).then(r => r.data);
+export const getAiStats     = ()         => api.get('/admin/ai-stats').then(r => r.data);
+
+// ── SECURITY REPORTS ────────────────────────────────────────────────────────
+export const getSecurityLogs   = ()      => api.get('/admin/reports/security-logs').then(r => r.data);
+export const getSecurityTrends = ()      => api.get('/admin/reports/security-trends').then(r => r.data);

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabaseAdmin = require('../config/supabaseAdmin');
 const { requireAuth, requireRole } = require('../middleware/auth.middleware');
+const { generateNextVivaQuestion, evaluateVivaSession } = require('../services/grokService');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // We use the existing viva_sessions table schema:
@@ -27,6 +28,7 @@ router.get('/sessions', requireAuth, async (req, res) => {
         .select(`
           id, status, scheduled_time, warnings_count, transcript,
           submission_id, student_id, teacher_id,
+          subject, topic, difficulty, total_questions, ai_report,
           users!viva_sessions_teacher_id_fkey(first_name, last_name, email)
         `)
         .eq('teacher_id', userId)
@@ -49,6 +51,7 @@ router.get('/sessions', requireAuth, async (req, res) => {
         .select(`
           id, status, scheduled_time, warnings_count, transcript,
           submission_id, student_id, teacher_id,
+          subject, topic, difficulty, total_questions, ai_report,
           users!viva_sessions_teacher_id_fkey(first_name, last_name, email)
         `)
         .is('submission_id', null)
@@ -72,6 +75,7 @@ router.get('/sessions', requireAuth, async (req, res) => {
         .select(`
           id, status, scheduled_time, warnings_count, transcript,
           submission_id, student_id, teacher_id,
+          subject, topic, difficulty, total_questions, ai_report,
           users!viva_sessions_teacher_id_fkey(first_name, last_name, email)
         `)
         .order('scheduled_time', { ascending: false });
@@ -84,6 +88,29 @@ router.get('/sessions', requireAuth, async (req, res) => {
   }
 });
 
+// ─── GET student's own completed viva sessions ────────────────────────────────
+router.get('/sessions/me', requireAuth, requireRole(['student']), async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('viva_sessions')
+      .select(`
+        id, status, scheduled_time, warnings_count, transcript,
+        subject, topic, difficulty, total_questions, ai_report,
+        users!viva_sessions_teacher_id_fkey(first_name, last_name, email)
+      `)
+      .eq('student_id', req.user.id)
+      .is('submission_id', null) // student's viva participation rows
+      .in('status', ['completed', 'ended'])
+      .order('scheduled_time', { ascending: false });
+    
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    console.error('[Viva GET /sessions/me]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GET a single viva session ───────────────────────────────────────────────
 router.get('/sessions/:id', requireAuth, async (req, res) => {
   try {
@@ -92,6 +119,7 @@ router.get('/sessions/:id', requireAuth, async (req, res) => {
       .select(`
         id, status, scheduled_time, warnings_count, transcript,
         submission_id, student_id, teacher_id,
+        subject, topic, difficulty, total_questions, ai_report,
         users!viva_sessions_teacher_id_fkey(first_name, last_name, email)
       `)
       .eq('id', req.params.id)
@@ -104,15 +132,14 @@ router.get('/sessions/:id', requireAuth, async (req, res) => {
 });
 
 // ─── POST create a new viva session (Teacher/Admin) ──────────────────────────
-// Body: { title, scheduled_time, duration_minutes, questions }
-// We store title/questions in transcript field as JSON metadata until we extend the schema
+// Body: { title, scheduled_time, duration_minutes, subject, topic, difficulty, total_questions }
 router.post('/sessions', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
   try {
-    const { title, scheduled_time, duration_minutes, questions } = req.body;
+    const { title, scheduled_time, duration_minutes, subject, topic, difficulty, total_questions } = req.body;
     const teacher_id = req.user.id;
 
-    // Store metadata in transcript field as a JSON envelope (schema workaround)
-    const meta = JSON.stringify({ title, duration_minutes: duration_minutes || 45, questions: questions || [] });
+    // Store metadata in transcript field as a JSON envelope (for backwards compatibility/title)
+    const meta = JSON.stringify({ title, duration_minutes: duration_minutes || 45 });
 
     const { data, error } = await supabaseAdmin
       .from('viva_sessions')
@@ -123,6 +150,10 @@ router.post('/sessions', requireAuth, requireRole(['teacher', 'admin']), async (
         scheduled_time: scheduled_time || new Date(Date.now() + 3600000).toISOString(),
         transcript: meta,
         warnings_count: 0,
+        subject,
+        topic,
+        difficulty: difficulty || 'medium',
+        total_questions: total_questions || 5
       }])
       .select()
       .single();
@@ -169,7 +200,7 @@ router.post('/sessions/:id/join', requireAuth, requireRole(['student']), async (
     // Fetch the master template row to copy metadata
     const { data: template, error: te } = await supabaseAdmin
       .from('viva_sessions')
-      .select('teacher_id, scheduled_time, transcript, status')
+      .select('teacher_id, scheduled_time, transcript, status, subject, topic, difficulty, total_questions')
       .eq('id', templateId)
       .single();
     if (te || !template) return res.status(404).json({ error: 'Session not found' });
@@ -218,6 +249,10 @@ router.post('/sessions/:id/join', requireAuth, requireRole(['student']), async (
         scheduled_time: template.scheduled_time || new Date().toISOString(),
         transcript: participationMeta,
         warnings_count: 0,
+        subject: template.subject,
+        topic: template.topic,
+        difficulty: template.difficulty,
+        total_questions: template.total_questions,
       }])
       .select()
       .single();
@@ -290,6 +325,67 @@ router.post('/sessions/:id/violations', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (_) {
     res.json({ ok: false });
+  }
+});
+
+// ─── POST generate next viva question (AI Interviewer) ───────────────────────
+router.post('/sessions/:id/next-question', requireAuth, requireRole(['student']), async (req, res) => {
+  try {
+    const { transcriptMessages, currentQuestionCount } = req.body;
+    
+    // Fetch session details
+    const { data: session, error } = await supabaseAdmin
+      .from('viva_sessions')
+      .select('subject, topic, difficulty, total_questions')
+      .eq('id', req.params.id)
+      .single();
+    if (error || !session) throw new Error('Session not found');
+
+    const result = await generateNextVivaQuestion(
+      session.subject, 
+      session.topic, 
+      session.difficulty, 
+      transcriptMessages, 
+      currentQuestionCount, 
+      session.total_questions
+    );
+
+    res.json(result);
+  } catch (err) {
+    console.error('[Viva POST /next-question]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST evaluate viva session (AI Grading) ─────────────────────────────────
+router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), async (req, res) => {
+  try {
+    const { transcriptMessages } = req.body;
+    
+    // Fetch session details
+    const { data: session, error } = await supabaseAdmin
+      .from('viva_sessions')
+      .select('subject, topic')
+      .eq('id', req.params.id)
+      .single();
+    if (error || !session) throw new Error('Session not found');
+
+    const report = await evaluateVivaSession(session.subject, session.topic, transcriptMessages);
+
+    // Save report to DB and mark ended
+    const { data: updated, error: updateErr } = await supabaseAdmin
+      .from('viva_sessions')
+      .update({ ai_report: report, status: 'completed' })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+    
+    if (updateErr) throw updateErr;
+
+    res.json({ report, session: updated });
+  } catch (err) {
+    console.error('[Viva POST /evaluate]', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, ClipboardList, Bot, Video,
   Users, BarChart3, Settings, LogOut,
-  BookOpen, Inbox, ShieldCheck, Bell, X
+  BookOpen, Inbox, ShieldCheck, Bell, X, FileText
 } from 'lucide-react';
 
 // ── Avatar chip ──────────────────────────────────────────────────────────────
@@ -26,6 +26,8 @@ const NAV = {
     { label: 'AI Grading',     to: '/student/ai-grading', icon: Bot             },
     { label: 'Live Viva',      to: '/student/viva',       icon: Video           },
     { label: 'Grades',         to: '/student/grades',     icon: BarChart3       },
+    { label: 'Study Materials',to: '/student/materials',  icon: FileText        },
+    { label: 'My Requests',    to: '/student/requests',   icon: Inbox           },
   ],
   teacher: [
     { label: 'Overview',       to: '/teacher',              icon: LayoutDashboard },
@@ -34,6 +36,7 @@ const NAV = {
     { label: 'Live Viva',      to: '/teacher/viva',         icon: Video           },
     { label: 'Students',       to: '/teacher/students',     icon: Users           },
     { label: 'Student Requests', to: '/teacher/requests',  icon: Inbox           },
+    { label: 'Study Materials',to: '/teacher/materials',  icon: FileText        },
     { label: 'Analytics',      to: '/teacher/analytics',    icon: BarChart3       },
   ],
   admin: [

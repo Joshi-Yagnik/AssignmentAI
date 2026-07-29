@@ -26,6 +26,17 @@ export async function confirmGrade(submissionId, payload) {
   return data;
 }
 
+/**
+ * Teacher: override the score for a single question in the breakdown.
+ * Automatically recalculates the final_score on the backend.
+ * @param {string} submissionId
+ * @param {{ question: number, newScore: number }} payload
+ */
+export async function overrideQuestionScore(submissionId, payload) {
+  const { data } = await api.patch(`/reports/submission/${submissionId}/question-override`, payload);
+  return data;
+}
+
 /** Admin: system-wide stats */
 export async function getAdminStats() {
   const { data } = await api.get('/admin/stats');

@@ -15,6 +15,9 @@ import StudentSubmissionPage from '../pages/student/StudentSubmissionPage';
 import StudentAIGradingPage from '../pages/student/StudentAIGradingPage';
 import StudentAIReportPage from '../pages/student/StudentAIReportPage';
 import VivaLobbyPage from '../pages/student/VivaLobbyPage';
+import VivaReportPage from '../pages/student/VivaReportPage';
+import StudentMaterialsPage from '../pages/student/StudentMaterialsPage';
+import StudentMyRequestsPage from '../pages/student/StudentRequestsPage';
 
 // Teacher
 import TeacherDashboard    from '../pages/teacher/TeacherDashboard';
@@ -25,6 +28,7 @@ import TeacherGradingQueuePage from '../pages/teacher/TeacherGradingQueuePage';
 import TeacherVivaPage      from '../pages/teacher/TeacherVivaPage';
 import TeacherVivaMonitorPage from '../pages/teacher/TeacherVivaMonitorPage';
 import TeacherStudentsPage  from '../pages/teacher/TeacherStudentsPage';
+import TeacherMaterialsPage from '../pages/teacher/TeacherMaterialsPage';
 
 // Admin
 import AdminDashboard   from '../pages/admin/AdminDashboard';
@@ -122,7 +126,10 @@ export default function AppRouter() {
             <Route path="ai-grading/:submissionId" element={<StudentAIReportPage />} />
             <Route path="viva"        element={<VivaLobbyPage />} />
             <Route path="viva/:sessionId" element={<VivaExamPage />} />
+            <Route path="viva/report/:sessionId" element={<VivaReportPage />} />
             <Route path="grades"      element={<StudentGradesPage />} />
+            <Route path="materials"   element={<StudentMaterialsPage />} />
+            <Route path="requests"    element={<StudentMyRequestsPage />} />
           </Route>
 
           {/* ── Teacher Portal ─────────────────────────────────────────── */}
@@ -139,10 +146,12 @@ export default function AppRouter() {
             <Route path="grading"     element={<TeacherGradingQueuePage />} />
             <Route path="viva"        element={<TeacherVivaPage />} />
             <Route path="viva/monitor/:sessionId" element={<TeacherVivaMonitorPage />} />
+            <Route path="viva/report/:sessionId" element={<VivaReportPage />} />
             <Route path="students"    element={<TeacherStudentsPage />} />
             <Route path="requests"    element={<StudentRequestsPage />} />
             <Route path="analytics"   element={<TeacherAnalyticsPage />} />
             <Route path="review/:submissionId" element={<ReviewWorkPage />} />
+            <Route path="materials"   element={<TeacherMaterialsPage />} />
           </Route>
 
           {/* ── Admin Portal ───────────────────────────────────────────── */}
