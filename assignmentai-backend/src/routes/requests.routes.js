@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabaseAdmin = require('../config/supabaseAdmin');
 const { requireAuth, requireRole } = require('../middleware/auth.middleware');
+const socketManager = require('../sockets/socketManager');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /requests — fetch requests based on role
@@ -162,9 +163,17 @@ router.patch('/:id', requireAuth, requireRole(['teacher', 'admin']), async (req,
     }
 
     // Emit real-time update to relevant student
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('request:updated', data);
+    try {
+      const io = socketManager.getIO();
+      if (data && data.student_id) {
+        io.to(`user_${data.student_id}`).emit('request_updated', {
+          request_id: data.id,
+          status: data.status,
+          message: `Your request for ${data.type} has been ${data.status}.`
+        });
+      }
+    } catch (err) {
+      console.error('[Socket] Failed to emit request_updated:', err.message);
     }
 
     res.json(data);

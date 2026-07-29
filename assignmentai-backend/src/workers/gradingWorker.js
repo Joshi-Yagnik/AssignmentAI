@@ -4,6 +4,7 @@ const pdfParse = require('pdf-parse');
 const { createWorker: createTesseractWorker } = require('tesseract.js');
 const supabaseAdmin = require('../config/supabaseAdmin');
 const { createRedisConnection } = require('../config/redisClient');
+const socketManager = require('../sockets/socketManager');
 
 const GROK_API_URL = 'https://api.x.ai/v1/chat/completions';
 const MIN_TEXT_LENGTH = 50; // below this threshold, assume scanned PDF → run OCR
@@ -97,12 +98,13 @@ async function extractText(buffer, filename) {
 /**
  * Build a structured prompt for Grok using the dynamic template from the DB.
  */
-function buildPrompt({ basePrompt, answerKeyText, submissionText, maxMarks, aiStrictness }) {
+function buildPrompt({ basePrompt, questionText, answerKeyText, submissionText, maxMarks, aiStrictness }) {
   const strictnessLabel =
     aiStrictness >= 75 ? 'strict' : aiStrictness >= 40 ? 'balanced' : 'lenient';
 
   let prompt = basePrompt
     .replace('{{strictnessLabel}}', strictnessLabel)
+    .replace('{{questionText}}', questionText)
     .replace('{{answerKeyText}}', answerKeyText)
     .replace('{{submissionText}}', submissionText);
     
@@ -177,7 +179,7 @@ async function processGradingJob(job) {
     primary_model: 'grok-3',
     temperature: 0.2,
     is_active: true,
-    system_prompt: "You are an expert academic grading assistant. Use a {{strictnessLabel}} grading approach...\n\nANSWER KEY (reference solution):\n---\n{{answerKeyText}}\n---\n\nSTUDENT SUBMISSION:\n---\n{{submissionText}}\n---\n\nTotal marks available: {{maxMarks}}\n\nRespond ONLY with valid JSON..." // fallback minimum
+    system_prompt: "You are an expert academic grading assistant. Use a {{strictnessLabel}} grading approach...\n\nQUESTION PAPER:\n---\n{{questionText}}\n---\n\nANSWER KEY (reference solution):\n---\n{{answerKeyText}}\n---\n\nSTUDENT SUBMISSION:\n---\n{{submissionText}}\n---\n\nTotal marks available: {{maxMarks}}\n\nRespond ONLY with valid JSON..."
   };
 
   if (aiConfig.is_active === false) {
@@ -189,7 +191,7 @@ async function processGradingJob(job) {
   // ── 1. Fetch submission + assignment ──────────────────────────────────────
   const { data: submission, error: subErr } = await supabaseAdmin
     .from('submissions')
-    .select('*, assignments(title, max_marks, ai_strictness, answer_key_pdf_url, description)')
+    .select('*, assignments(title, max_marks, ai_strictness, question_pdf_url, answer_key_pdf_url, description)')
     .eq('id', submissionId)
     .single();
 
@@ -213,6 +215,12 @@ async function processGradingJob(job) {
   console.log('[GradingWorker] Downloading submission file...');
   const submissionBuffer = await downloadBuffer('submissions', submission.file_url);
 
+  let questionBuffer = null;
+  if (assignment.question_pdf_url) {
+    console.log('[GradingWorker] Downloading question paper PDF...');
+    questionBuffer = await downloadBuffer('question-papers', assignment.question_pdf_url);
+  }
+
   let answerKeyBuffer = null;
   if (assignment.answer_key_pdf_url) { 
     console.log('[GradingWorker] Downloading answer key PDF...');
@@ -225,12 +233,20 @@ async function processGradingJob(job) {
   console.log('[GradingWorker] Extracting text from submission...');
   const submissionText = await extractText(submissionBuffer, submission.file_url);
 
+  let questionText = '';
+  if (questionBuffer) {
+    console.log('[GradingWorker] Extracting text from question paper...');
+    questionText = await extractText(questionBuffer, assignment.question_pdf_url);
+  } else {
+    questionText = assignment.description || 'No question paper provided.';
+  }
+
   let answerKeyText = '';
   if (answerKeyBuffer) {
     console.log('[GradingWorker] Extracting text from answer key...');
     answerKeyText = await extractText(answerKeyBuffer, assignment.answer_key_pdf_url);
   } else {
-    answerKeyText = assignment.description || 'No answer key provided. Grade based on general academic standards.';
+    answerKeyText = 'No answer key provided. Grade based on general academic standards and the question paper context.';
   }
 
   if (!submissionText || submissionText.length < 5) {
@@ -243,6 +259,7 @@ async function processGradingJob(job) {
   console.log('[GradingWorker] Calling Grok API...');
   const prompt = buildPrompt({
     basePrompt: aiConfig.system_prompt,
+    questionText,
     answerKeyText,
     submissionText,
     maxMarks: assignment.max_marks || 100,
@@ -292,7 +309,7 @@ async function processGradingJob(job) {
   await job.updateProgress(100);
   console.log(`[GradingWorker] Job ${job.id} complete ✓`);
 
-  return { submissionId, finalScore: aiResult.final_score };
+  return { submissionId, studentId: submission.student_id, finalScore: aiResult.final_score };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -317,6 +334,20 @@ try {
 
   gradingWorker.on('completed', (job, result) => {
     console.log(`[GradingWorker] ✓ Completed job ${job.id} — score: ${result.finalScore}`);
+    
+    // Emit real-time notification to the specific student
+    try {
+      const io = socketManager.getIO();
+      if (result.studentId) {
+        io.to(`user_${result.studentId}`).emit('grading_complete', {
+          submission_id: result.submissionId,
+          score: result.finalScore,
+          message: 'AI Grading is complete for your assignment!'
+        });
+      }
+    } catch (err) {
+      console.error('[GradingWorker] Failed to emit socket event:', err.message);
+    }
   });
 
   gradingWorker.on('failed', (job, err) => {

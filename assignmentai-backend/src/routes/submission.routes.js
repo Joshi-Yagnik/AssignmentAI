@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../config/supabaseClient');
 const { requireAuth, requireRole } = require('../middleware/auth.middleware');
+const socketManager = require('../sockets/socketManager');
 const { gradingQueue } = require('../queues/gradingQueue');
 
 // ─────────────────────────────────────────────────────────────
@@ -214,7 +215,7 @@ router.post('/', requireAuth, requireRole(['student']), async (req, res) => {
     // ── Fetch the assignment to check deadline and resubmission settings ─────
     const { data: assignment, error: aErr } = await supabase
       .from('assignments')
-      .select('deadline, allow_resubmission')
+      .select('deadline, allow_resubmission, created_by, title')
       .eq('id', assignment_id)
       .single();
 
@@ -277,6 +278,29 @@ router.post('/', requireAuth, requireRole(['student']), async (req, res) => {
       console.log(`[SubmissionRoute] Enqueued grading job ${job.id} for submission ${data.id}`);
     } else {
       console.warn('[SubmissionRoute] Grading queue unavailable (Redis not running). Submission saved without queuing.');
+    }
+
+    // ── Emit new submission event to teacher ─────────────────────────────
+    try {
+      const io = socketManager.getIO();
+      // Inform the teacher that created this assignment
+      if (assignment.created_by) {
+        io.to(`user_${assignment.created_by}`).emit('new_submission', {
+          submission_id: data.id,
+          student_name: `${req.user.first_name || 'A'} ${req.user.last_name || 'Student'}`,
+          assignment_title: assignment.title || 'Assignment',
+          message: `New submission received for ${assignment.title || 'Assignment'}`
+        });
+      } else {
+        // Fallback: emit to all teachers
+        io.to('role_teacher').emit('new_submission', {
+          submission_id: data.id,
+          student_name: `${req.user.first_name || 'A'} ${req.user.last_name || 'Student'}`,
+          message: `New submission received.`
+        });
+      }
+    } catch (err) {
+      console.error('[Socket] Failed to emit new_submission:', err.message);
     }
 
     res.status(201).json({ ...data, gradingJobId });

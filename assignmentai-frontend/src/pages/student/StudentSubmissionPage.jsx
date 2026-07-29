@@ -5,12 +5,13 @@ import { useToast } from '../../components/shared/Toast';
 import {
   Upload, FileText, CheckCircle2, Loader2, ArrowLeft,
   Calendar, Info, AlertCircle, X, ExternalLink, Clock,
-  History, ChevronDown, ChevronUp, Star, RefreshCw
+  History, ChevronDown, ChevronUp, Star, RefreshCw, Shield
 } from 'lucide-react';
 import {
   getAssignmentById, getUploadUrl, uploadFileToStorage,
   createSubmission, getMySubmissions, getDownloadUrl
 } from '../../services/assignmentService';
+import { useProctoring } from '../../hooks/useProctoring';
 
 // ── Deadline Countdown Badge ────────────────────────────────────────────────
 function DeadlineBadge({ deadline }) {
@@ -95,6 +96,50 @@ export default function StudentSubmissionPage() {
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef(null);
 
+  // Proctoring State
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [streamError, setStreamError] = useState(false);
+
+  const isGraded      = assignment?.submission?.status === 'graded';
+  const isSubmitted   = !!fileUrl;
+  const isPastDeadline = assignment ? new Date() > new Date(assignment.deadline) : false;
+  const canResubmit   = isSubmitted && !isGraded && !isPastDeadline && (assignment?.allow_resubmission ?? true);
+
+  const isProctoringActive = !!assignment && !isSubmitted && !isGraded && !isPastDeadline && !streamError;
+
+  const { warnings, faceStatus } = useProctoring({
+    isActive: isProctoringActive,
+    source: 'assignment',
+    referenceId: assignment?.submission?.id || assignmentId,
+    subjectId: assignment?.subjects?.id || null,
+    videoRef
+  });
+
+  // Start webcam for proctoring
+  useEffect(() => {
+    if (isProctoringActive) {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        .then(stream => {
+          streamRef.current = stream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+          setStreamError(false);
+        })
+        .catch(err => {
+          console.error('[Webcam Error]', err);
+          setStreamError(true);
+        });
+    }
+
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [isProctoringActive]);
+
   useEffect(() => {
     async function loadData() {
       try {
@@ -143,10 +188,6 @@ export default function StudentSubmissionPage() {
   const acceptAttr = assignment?.allowed_formats?.join(',') || '.pdf,.docx,.doc,.png,.jpg,.jpeg';
   const formatLabels = assignment?.allowed_formats?.map(f => f.replace('.', '').toUpperCase()).join(', ') || 'PDF, DOCX, PNG, JPG';
 
-  const isPastDeadline = assignment ? new Date() > new Date(assignment.deadline) : false;
-  const isGraded      = assignment?.submission?.status === 'graded';
-  const isSubmitted   = !!fileUrl;
-  const canResubmit   = isSubmitted && !isGraded && !isPastDeadline && (assignment?.allow_resubmission ?? true);
   const score         = assignment?.submission?.ai_reports?.[0]?.final_score;
 
   const handleSubmit = async (e) => {
@@ -437,6 +478,33 @@ export default function StudentSubmissionPage() {
           )}
         </form>
       </main>
+
+      {/* Floating Proctoring Widget */}
+      {isProctoringActive && (
+        <div className="fixed bottom-6 right-6 w-48 bg-surface border border-border shadow-2xl rounded-xl overflow-hidden z-50">
+          <div className="bg-primary-950 px-3 py-2 flex items-center justify-between">
+            <span className="text-white text-xs font-semibold flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5 text-primary-400" /> Proctoring
+            </span>
+            <span className="w-2 h-2 rounded-full bg-danger animate-pulse-dot" />
+          </div>
+          <div className="relative h-32 bg-black">
+            <video 
+              ref={videoRef} 
+              autoPlay 
+              playsInline 
+              muted 
+              className="absolute inset-0 w-full h-full object-cover -scale-x-100" 
+            />
+          </div>
+          <div className="px-3 py-2 bg-surface-low border-t border-border flex flex-col gap-1">
+            <span className="text-[10px] font-semibold text-ink-secondary">{faceStatus}</span>
+            {warnings > 0 && (
+              <span className="text-[10px] font-semibold text-danger">Violations: {warnings}</span>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

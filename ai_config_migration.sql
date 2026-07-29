@@ -20,6 +20,11 @@ VALUES (
     'system_prompt',
 'You are an expert academic grading assistant. Use a {{strictnessLabel}} grading approach.
 
+QUESTION PAPER:
+---
+{{questionText}}
+---
+
 ANSWER KEY (reference solution):
 ---
 {{answerKeyText}}

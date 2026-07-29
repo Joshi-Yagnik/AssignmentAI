@@ -230,4 +230,37 @@ router.post('/viva-integrity/:submissionId', requireAuth, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /security-logs
+// Logs a proctoring violation from the student's frontend
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/security-logs', requireAuth, async (req, res) => {
+  try {
+    const { source, reference_id, violation_type, subject_id, severity, details } = req.body;
+    
+    // Ensure the student is logging it for themselves
+    const user_id = req.user.id;
+
+    const { data, error } = await supabase
+      .from('security_logs')
+      .insert([{
+        user_id,
+        subject_id,
+        source,
+        reference_id,
+        violation_type,
+        severity: severity || 'medium',
+        details: details || {}
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (err) {
+    console.error('[Security Logs POST]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

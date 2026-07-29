@@ -57,10 +57,22 @@ const io = new Server(server, {
   }
 });
 
-// Pass io to our socket handler
+// Initialize Socket Manager
+const socketManager = require('./sockets/socketManager');
+socketManager.init(io);
+
+// Global Socket Connection Handler for Rooms
+io.on('connection', (socket) => {
+  socket.on('join_room', (room) => {
+    socket.join(room);
+    console.log(`[Socket] Client joined room: ${room}`);
+  });
+});
+
+// Pass io to our viva socket handler
 require('./sockets/vivaSocket')(io);
 
-// Make io accessible in routes via req.app.get('io')
+// Make io accessible in routes via req.app.get('io') (Legacy)
 app.set('io', io);
 
 // ── Ensure Supabase Storage buckets exist ─────────────────────────────────────

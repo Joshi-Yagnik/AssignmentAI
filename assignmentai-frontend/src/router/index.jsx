@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ToastProvider } from '../components/shared/Toast';
 import PortalLayout from '../components/layouts/PortalLayout';
 import { useAuth } from '../context/AuthContext';
+import { SocketProvider } from '../context/SocketContext';
+import GlobalNotifications from '../components/shared/GlobalNotifications';
 
 // Auth
 import LoginPage from '../pages/auth/LoginPage';
@@ -104,81 +106,84 @@ export default function AppRouter() {
   return (
     <BrowserRouter>
       <ToastProvider>
-        <Routes>
-          {/* Auth */}
-          <Route path="/login"          element={<LoginPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/" element={<RootRedirect />} />
+        <SocketProvider>
+          <GlobalNotifications />
+          <Routes>
+            {/* Auth */}
+            <Route path="/login"          element={<LoginPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/" element={<RootRedirect />} />
 
-          {/* ── Student Portal ─────────────────────────────────────────── */}
-          <Route
-            path="/student"
-            element={
-              <ProtectedRoute allowedRoles={['student']}>
-                <PortalLayout role="student" />
-              </ProtectedRoute>
-            }
-          >
-            <Route index              element={<StudentDashboard />} />
-            <Route path="assignments" element={<StudentAssignmentsPage />} />
-            <Route path="submit/:assignmentId" element={<StudentSubmissionPage />} />
-            <Route path="ai-grading"  element={<StudentAIGradingPage />} />
-            <Route path="ai-grading/:submissionId" element={<StudentAIReportPage />} />
-            <Route path="viva"        element={<VivaLobbyPage />} />
-            <Route path="viva/:sessionId" element={<VivaExamPage />} />
-            <Route path="viva/report/:sessionId" element={<VivaReportPage />} />
-            <Route path="grades"      element={<StudentGradesPage />} />
-            <Route path="materials"   element={<StudentMaterialsPage />} />
-            <Route path="requests"    element={<StudentMyRequestsPage />} />
-          </Route>
+            {/* ── Student Portal ─────────────────────────────────────────── */}
+            <Route
+              path="/student"
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <PortalLayout role="student" />
+                </ProtectedRoute>
+              }
+            >
+              <Route index              element={<StudentDashboard />} />
+              <Route path="assignments" element={<StudentAssignmentsPage />} />
+              <Route path="submit/:assignmentId" element={<StudentSubmissionPage />} />
+              <Route path="ai-grading"  element={<StudentAIGradingPage />} />
+              <Route path="ai-grading/:submissionId" element={<StudentAIReportPage />} />
+              <Route path="viva"        element={<VivaLobbyPage />} />
+              <Route path="viva/:sessionId" element={<VivaExamPage />} />
+              <Route path="viva/report/:sessionId" element={<VivaReportPage />} />
+              <Route path="grades"      element={<StudentGradesPage />} />
+              <Route path="materials"   element={<StudentMaterialsPage />} />
+              <Route path="requests"    element={<StudentMyRequestsPage />} />
+            </Route>
 
-          {/* ── Teacher Portal ─────────────────────────────────────────── */}
-          <Route
-            path="/teacher"
-            element={
-              <ProtectedRoute allowedRoles={['teacher']}>
-                <PortalLayout role="teacher" />
-              </ProtectedRoute>
-            }
-          >
-            <Route index              element={<TeacherDashboard />} />
-            <Route path="assignments" element={<DeployAssignmentPage />} />
-            <Route path="grading"     element={<TeacherGradingQueuePage />} />
-            <Route path="viva"        element={<TeacherVivaPage />} />
-            <Route path="viva/monitor/:sessionId" element={<TeacherVivaMonitorPage />} />
-            <Route path="viva/report/:sessionId" element={<VivaReportPage />} />
-            <Route path="students"    element={<TeacherStudentsPage />} />
-            <Route path="requests"    element={<StudentRequestsPage />} />
-            <Route path="analytics"   element={<TeacherAnalyticsPage />} />
-            <Route path="review/:submissionId" element={<ReviewWorkPage />} />
-            <Route path="materials"   element={<TeacherMaterialsPage />} />
-          </Route>
+            {/* ── Teacher Portal ─────────────────────────────────────────── */}
+            <Route
+              path="/teacher"
+              element={
+                <ProtectedRoute allowedRoles={['teacher']}>
+                  <PortalLayout role="teacher" />
+                </ProtectedRoute>
+              }
+            >
+              <Route index              element={<TeacherDashboard />} />
+              <Route path="assignments" element={<DeployAssignmentPage />} />
+              <Route path="grading"     element={<TeacherGradingQueuePage />} />
+              <Route path="viva"        element={<TeacherVivaPage />} />
+              <Route path="viva/monitor/:sessionId" element={<TeacherVivaMonitorPage />} />
+              <Route path="viva/report/:sessionId" element={<VivaReportPage />} />
+              <Route path="students"    element={<TeacherStudentsPage />} />
+              <Route path="requests"    element={<StudentRequestsPage />} />
+              <Route path="analytics"   element={<TeacherAnalyticsPage />} />
+              <Route path="review/:submissionId" element={<ReviewWorkPage />} />
+              <Route path="materials"   element={<TeacherMaterialsPage />} />
+            </Route>
 
-          {/* ── Admin Portal ───────────────────────────────────────────── */}
-          <Route
-            path="/admin"
-            element={
-              <ProtectedRoute allowedRoles={['admin']}>
-                <PortalLayout role="admin" />
-              </ProtectedRoute>
-            }
-          >
-            <Route index                element={<AdminDashboard />} />
-            <Route path="institutes"    element={<InstitutesPage />} />
-            <Route path="departments"   element={<DepartmentsPage />} />
-            <Route path="subjects"      element={<SubjectsPage />} />
-            <Route path="users"         element={<UsersPage />} />
-            <Route path="courses"       element={<AssignmentsPage />} />
-            <Route path="ai-engine"     element={<AdminAIEnginePage />} />
-            <Route path="viva"          element={<AdminVivaPage />} />
-            <Route path="reports"       element={<AdminReportsPage />} />
-            <Route path="security"      element={<Placeholder title="Security" />} />
-            <Route path="settings"      element={<Placeholder title="Settings" />} />
-          </Route>
+            {/* ── Admin Portal ───────────────────────────────────────────── */}
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <PortalLayout role="admin" />
+                </ProtectedRoute>
+              }
+            >
+              <Route index                element={<AdminDashboard />} />
+              <Route path="institutes"    element={<InstitutesPage />} />
+              <Route path="departments"   element={<DepartmentsPage />} />
+              <Route path="subjects"      element={<SubjectsPage />} />
+              <Route path="users"         element={<UsersPage />} />
+              <Route path="courses"       element={<AssignmentsPage />} />
+              <Route path="ai-engine"     element={<AdminAIEnginePage />} />
+              <Route path="viva"          element={<AdminVivaPage />} />
+              <Route path="reports"       element={<Placeholder title="Reports" />} />
+              <Route path="security"      element={<AdminReportsPage />} />
+              <Route path="settings"      element={<Placeholder title="Settings" />} />
+            </Route>
 
-          {/* 404 */}
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
+            {/* 404 */}
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </SocketProvider>
       </ToastProvider>
     </BrowserRouter>
   );

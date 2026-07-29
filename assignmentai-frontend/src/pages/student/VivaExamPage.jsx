@@ -6,6 +6,7 @@ import api from '../../services/api';
 import { getNextVivaQuestion, evaluateVivaSession } from '../../services/vivaService';
 import io from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
+import { useProctoring } from '../../hooks/useProctoring';
 
 const SOCKET_URL = import.meta.env.VITE_API_BASE_URL 
   ? import.meta.env.VITE_API_BASE_URL.replace('/api', '') 
@@ -52,13 +53,20 @@ export default function VivaExamPage() {
   const [camOn, setCamOn]     = useState(true);
   const [soundOn, setSoundOn] = useState(true);
   const [streamError, setStreamError] = useState(false);
-  const [faceStatus, setFaceStatus] = useState('Initializing...');
-  const [warnings, setWarnings] = useState(0);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const socketRef = useRef(null);
   const recognitionRef = useRef(null);
+
+  // Proctoring Hook Integration
+  const { warnings, faceStatus } = useProctoring({
+    isActive: camOn && !streamError,
+    source: 'viva',
+    referenceId: templateSessionId,
+    subjectId: null, // We could fetch subjectId, but let's pass null for now or leave it out
+    videoRef
+  });
 
   // Helper to speak text
   const speakText = useCallback((text) => {
@@ -106,15 +114,12 @@ export default function VivaExamPage() {
 
     async function loadMedia() {
       try {
-        setFaceStatus('Requesting camera...');
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         streamRef.current = stream;
         if (videoRef.current) videoRef.current.srcObject = stream;
         setStreamError(false);
-        setFaceStatus('Face ID: Verified ✓');
       } catch (err) {
         setStreamError(true);
-        setFaceStatus('Camera access denied');
       }
     }
     loadMedia();
