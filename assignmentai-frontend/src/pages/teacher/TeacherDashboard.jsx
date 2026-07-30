@@ -64,10 +64,16 @@ export default function TeacherDashboard() {
           api.get('/submissions/teacher/students'),
         ]);
 
-        const assignmentsRes = results[0].status === 'fulfilled' ? results[0].value : [];
-        const submissionsRes = results[1].status === 'fulfilled' ? results[1].value : [];
-        const vivasRes       = results[2].status === 'fulfilled' ? results[2].value : { data: [] };
-        const studentsRes    = results[3].status === 'fulfilled' ? results[3].value : { data: [] };
+        const assignmentsData = results[0].status === 'fulfilled' ? results[0].value : [];
+        const submissionsData = results[1].status === 'fulfilled' ? results[1].value : [];
+        const vivasRes        = results[2].status === 'fulfilled' ? results[2].value : { data: [] };
+        const studentsRes     = results[3].status === 'fulfilled' ? results[3].value : { data: [] };
+
+        // Ensure we always have arrays to prevent .length or .map from crashing if backend returns null
+        const assignmentsList = Array.isArray(assignmentsData) ? assignmentsData : [];
+        const submissionsList = Array.isArray(submissionsData) ? submissionsData : [];
+        const vivaList        = Array.isArray(vivasRes?.data) ? vivasRes.data : [];
+        const studentList     = Array.isArray(studentsRes?.data) ? studentsRes.data : [];
 
         // Log any individual failures for debugging
         const labels = ['assignments', 'submissions', 'vivas', 'students'];
@@ -78,10 +84,9 @@ export default function TeacherDashboard() {
         });
 
         // Compute active assignments
-        const activeAssignments = assignmentsRes.length;
+        const activeAssignments = assignmentsList.length;
         
         // Vivas
-        const vivaList = vivasRes.data || [];
         const liveVivas = vivaList.filter(v => v.status === 'live').length;
         setVivas(vivaList.map(v => {
           let meta = {};
@@ -97,7 +102,7 @@ export default function TeacherDashboard() {
         }).slice(0, 5));
 
         // Submissions
-        const subs = (submissionsRes || []).map(s => {
+        const subs = submissionsList.map(s => {
           return {
             id: s.id,
             student: `${s.users?.first_name || ''} ${s.users?.last_name || ''}`.trim() || 'Unknown',
@@ -112,12 +117,11 @@ export default function TeacherDashboard() {
         setPendingSubmissions(subs);
 
         // Resolve student data FIRST so it's available for subject enrolled counts
-        const studentList = studentsRes.data || [];
         const gradedCount = studentList.reduce((acc, s) => acc + (s.graded_count || 0), 0);
         
         // Courses summary (Grouping assignments by subject with real student counts)
         const subjectsMap = {};
-        assignmentsRes.forEach(a => {
+        assignmentsList.forEach(a => {
           if (a.subjects) {
             const sid = a.subjects.id;
             if (!subjectsMap[sid]) {
@@ -136,7 +140,7 @@ export default function TeacherDashboard() {
         });
 
         // Count pending reviews per subject by matching assignment_id
-        (submissionsRes || []).forEach(s => {
+        submissionsList.forEach(s => {
           const aId = s.assignment_id;
           for (const subj of Object.values(subjectsMap)) {
             if (subj.assignmentIds.includes(aId)) {
