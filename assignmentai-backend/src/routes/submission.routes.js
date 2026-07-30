@@ -34,7 +34,7 @@ router.get('/pending', requireAuth, requireRole(['teacher', 'admin']), async (re
         student_id,
         assignment_id,
         users!submissions_student_id_fkey(first_name, last_name, email),
-        assignments(id, title, max_marks, created_by)
+        assignments(id, title, max_marks)
       `)
       .eq('status', 'submitted')
       .order('submitted_at', { ascending: false });
@@ -118,7 +118,7 @@ router.get('/teacher/students', requireAuth, requireRole(['teacher', 'admin']), 
         student_id,
         assignment_id,
         users!submissions_student_id_fkey(id, first_name, last_name, email),
-        assignments(id, title, created_by),
+        assignments(id, title),
         ai_reports(ai_score, final_score)
       `)
       .order('submitted_at', { ascending: false });
@@ -322,13 +322,23 @@ router.patch('/:id/grade', requireAuth, requireRole(['teacher', 'admin']), async
 
     // Ownership check for teachers
     if (req.user.role === 'teacher') {
+      // First get the assignment_id of this submission
       const { data: sub } = await supabase
         .from('submissions')
-        .select('assignment_id, assignments(created_by)')
+        .select('assignment_id')
         .eq('id', submissionId)
         .single();
 
-      if (!sub || !sub.assignments || sub.assignments.created_by !== req.user.id) {
+      if (!sub) return res.status(404).json({ error: 'Submission not found.' });
+
+      // Then check the assignment belongs to this teacher
+      const { data: assignment } = await supabase
+        .from('assignments')
+        .select('created_by')
+        .eq('id', sub.assignment_id)
+        .single();
+
+      if (!assignment || assignment.created_by !== req.user.id) {
         return res.status(403).json({ error: 'You can only grade submissions for your own assignments.' });
       }
     }
@@ -371,13 +381,23 @@ router.patch('/:id/status', requireAuth, requireRole(['teacher', 'admin']), asyn
   try {
     // Ownership check for teachers
     if (req.user.role === 'teacher') {
+      // First get the assignment_id of this submission
       const { data: sub } = await supabase
         .from('submissions')
-        .select('assignment_id, assignments(created_by)')
+        .select('assignment_id')
         .eq('id', req.params.id)
         .single();
 
-      if (!sub || !sub.assignments || sub.assignments.created_by !== req.user.id) {
+      if (!sub) return res.status(404).json({ error: 'Submission not found.' });
+
+      // Then check the assignment belongs to this teacher
+      const { data: assignment } = await supabase
+        .from('assignments')
+        .select('created_by')
+        .eq('id', sub.assignment_id)
+        .single();
+
+      if (!assignment || assignment.created_by !== req.user.id) {
         return res.status(403).json({ error: 'You can only update submissions for your own assignments.' });
       }
     }
