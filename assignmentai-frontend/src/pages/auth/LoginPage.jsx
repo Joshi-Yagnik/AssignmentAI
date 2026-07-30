@@ -81,7 +81,7 @@ function Field({ label, id, icon: Icon, error, children }) {
 // ── Shared input style ────────────────────────────────────────────────────────
 const inputCls = (hasIcon, hasError) =>
   [
-    'w-full rounded-xl border bg-white/80 px-4 py-3 text-sm text-slate-800',
+    'w-full rounded-xl border bg-white/80 px-4 py-2.5 sm:py-3 text-sm text-slate-800',
     'placeholder:text-slate-400 outline-none transition-all duration-200',
     'focus:bg-white focus:shadow-[0_0_0_3px_rgba(99,102,241,0.15)]',
     hasIcon ? 'pl-10' : '',
@@ -144,10 +144,10 @@ function LoginView({ onForgot, onSignup }) {
             type="button"
             onClick={() => { setRole(id); setErr(''); }}
             className={[
-              'flex flex-col items-center gap-1 py-2.5 rounded-xl text-xs font-semibold transition-all duration-200',
+              'flex flex-col items-center gap-1 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all duration-300',
               role === id
-                ? 'bg-white text-indigo-600 shadow-sm shadow-indigo-100 scale-[1.02]'
-                : 'text-slate-500 hover:text-slate-700',
+                ? 'bg-white text-indigo-600 shadow-md shadow-indigo-100/50 scale-[1.02] ring-1 ring-black/5'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50',
             ].join(' ')}
           >
             <Icon className="w-4 h-4" />
@@ -214,7 +214,7 @@ function LoginView({ onForgot, onSignup }) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm text-white transition-all duration-200 mt-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 disabled:opacity-70"
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm text-white transition-all duration-300 mt-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 disabled:opacity-70 hover:shadow-lg hover:shadow-indigo-500/30 hover:-translate-y-0.5"
           style={{ background: loading ? '#818CF8' : 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}
         >
           {loading ? (
@@ -234,7 +234,7 @@ function LoginView({ onForgot, onSignup }) {
 
       {/* OAuth */}
       <div className="grid grid-cols-2 gap-3">
-        <button className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-sm font-medium text-slate-700 transition-all hover:border-slate-300 hover:shadow-sm">
+        <button className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-sm font-medium text-slate-700 transition-all duration-300 hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5">
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path fill="#EA4335" d="M5.27 9.76A7.08 7.08 0 0 1 19.07 11H12v2.75h7.86A7.49 7.49 0 0 1 4.64 17.4l-3.16 2.41A11.98 11.98 0 0 0 24 12c0-.67-.06-1.32-.17-1.95H12v3.7h6.44a5.5 5.5 0 0 1-2.36 3.6l3.4 2.63A11.98 11.98 0 0 0 5.27 9.76Z"/>
             <path fill="#4285F4" d="M12 24c3.24 0 5.95-1.08 7.93-2.92l-3.4-2.63a7.48 7.48 0 0 1-11.3-3.9l-3.16 2.41A11.98 11.98 0 0 0 12 24Z"/>
@@ -243,7 +243,7 @@ function LoginView({ onForgot, onSignup }) {
           </svg>
           Google
         </button>
-        <button className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-sm font-medium text-slate-700 transition-all hover:border-slate-300 hover:shadow-sm">
+        <button className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-sm font-medium text-slate-700 transition-all duration-300 hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5">
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <rect x="1"  y="1"  width="10" height="10" fill="#F25022"/>
             <rect x="13" y="1"  width="10" height="10" fill="#7FBA00"/>
@@ -356,10 +356,10 @@ function SignupView({ onBack }) {
             type="button"
             onClick={() => setRole(id)}
             className={[
-              'flex flex-col items-center gap-1 py-2.5 rounded-xl text-xs font-semibold transition-all duration-200',
+              'flex flex-col items-center gap-1 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all duration-300',
               role === id
-                ? 'bg-white text-indigo-600 shadow-sm shadow-indigo-100 scale-[1.02]'
-                : 'text-slate-500 hover:text-slate-700',
+                ? 'bg-white text-indigo-600 shadow-md shadow-indigo-100/50 scale-[1.02] ring-1 ring-black/5'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50',
             ].join(' ')}
           >
             <Icon className="w-4 h-4" />
@@ -664,7 +664,7 @@ export default function LoginPage() {
       `}</style>
 
       <div
-        className="min-h-screen flex items-center justify-center p-4"
+        className="min-h-screen flex items-center justify-center p-2 sm:p-4"
         style={{ background: 'linear-gradient(135deg, #0F0C29, #302B63, #24243E)' }}
       >
         {/* Floating background blobs */}
@@ -708,7 +708,7 @@ export default function LoginPage() {
 
         {/* Card */}
         <div
-          className="relative w-full max-w-5xl flex rounded-3xl overflow-hidden"
+          className="relative w-full max-w-5xl flex rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl"
           style={{
             boxShadow: '0 32px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08)',
           }}
@@ -778,16 +778,23 @@ export default function LoginPage() {
           </div>
 
           {/* ── RIGHT PANEL ────────────────────────────────────────────── */}
-          <div className="flex-1 bg-slate-50 p-8 lg:p-10 flex flex-col justify-center overflow-y-auto max-h-screen">
+          <div className="flex-1 bg-white p-5 sm:p-8 lg:p-10 flex flex-col justify-center overflow-y-auto max-h-screen relative">
+            
+            {/* Subtle mobile background glow */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl opacity-50 -z-10 pointer-events-none lg:hidden" />
+            
             {/* Mobile logo */}
-            <div className="flex lg:hidden items-center gap-2.5 mb-6">
+            <div className="flex lg:hidden items-center justify-center gap-2.5 mb-8 mt-2">
               <div
-                className="w-8 h-8 rounded-xl flex items-center justify-center"
+                className="w-10 h-10 rounded-2xl flex items-center justify-center shadow-md"
                 style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}
               >
-                <Bot className="w-4 h-4 text-white" />
+                <Bot className="w-5 h-5 text-white" />
               </div>
-              <span className="font-bold text-slate-800">AssignmentAI</span>
+              <div>
+                <p className="font-bold text-slate-800 text-lg leading-none">AssignmentAI</p>
+                <p className="text-[10px] text-slate-500 font-medium">Academic Intelligence</p>
+              </div>
             </div>
 
             <div key={viewKey} className="w-full max-w-sm mx-auto">
