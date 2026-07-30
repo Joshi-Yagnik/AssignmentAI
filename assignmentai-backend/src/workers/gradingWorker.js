@@ -318,7 +318,13 @@ async function processGradingJob(job) {
 
 let gradingWorker = null;
 
-try {
+// Skip BullMQ worker if Redis is not configured (e.g. Render free tier without Redis)
+const REDIS_URL = process.env.REDIS_URL;
+if (!REDIS_URL) {
+  console.warn('[GradingWorker] REDIS_URL not set — AI grading worker is DISABLED. Set REDIS_URL to enable background grading.');
+}
+
+if (REDIS_URL) try {
   const redisConnection = createRedisConnection();
 
   // Suppress unhandled 'error' events from ioredis so a Redis outage
