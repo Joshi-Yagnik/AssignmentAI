@@ -33,3 +33,8 @@ export const getAiStats     = ()         => api.get('/admin/ai-stats').then(r =>
 // ── SECURITY REPORTS ────────────────────────────────────────────────────────
 export const getSecurityLogs   = ()      => api.get('/admin/reports/security-logs').then(r => r.data);
 export const getSecurityTrends = ()      => api.get('/admin/reports/security-trends').then(r => r.data);
+
+// ── REPORTS ──────────────────────────────────────────────────────────────────
+export const getReportOverview    = ()   => api.get('/admin/reports/overview').then(r => r.data);
+export const getReportAssignments = ()   => api.get('/admin/reports/assignments').then(r => r.data);
+export const getReportStudents    = ()   => api.get('/admin/reports/students').then(r => r.data);
