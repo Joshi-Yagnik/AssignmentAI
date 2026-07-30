@@ -162,11 +162,20 @@ router.delete('/subjects/:id', ...adminOnly, async (req, res) => {
 // USERS (Teachers & Students)
 // ─────────────────────────────────────────────────────────────
 
+// ── Helper: split a full name string into first/last parts ──────────────────
+function splitName(fullName = '') {
+  const parts = (fullName || '').trim().split(/\s+/);
+  return {
+    first_name: parts[0] || '',
+    last_name:  parts.slice(1).join(' ') || '',
+  };
+}
+
 router.get('/users', ...adminOnly, async (req, res) => {
   try {
     let query = supabase
       .from('users')
-      .select('*, departments(name)')
+      .select('id, email, first_name, last_name, role, is_active, department_id, created_at, departments(name)')
       .order('created_at', { ascending: false });
 
     if (req.query.role) {
@@ -175,7 +184,13 @@ router.get('/users', ...adminOnly, async (req, res) => {
 
     const { data, error } = await query;
     if (error) throw error;
-    res.json(data);
+
+    // Normalize: add a virtual `name` field for frontend compatibility
+    const normalized = (data || []).map(u => ({
+      ...u,
+      name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email,
+    }));
+    res.json(normalized);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -185,13 +200,17 @@ router.post('/users', ...adminOnly, async (req, res) => {
   try {
     const { name, email, password, role, department_id } = req.body;
     
+    // Split full name into first_name / last_name for DB compatibility
+    const { first_name, last_name } = splitName(name);
+
     // Hash the password
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
 
-    // Build the user record
+    // Build the user record using the correct column names
     const userRecord = {
-      name,
+      first_name,
+      last_name,
       email: email.toLowerCase(),
       password_hash,
       role,
@@ -201,13 +220,16 @@ router.post('/users', ...adminOnly, async (req, res) => {
     const { data, error } = await supabase
       .from('users')
       .insert([userRecord])
-      .select('*, departments(name)').single();
+      .select('id, email, first_name, last_name, role, is_active, department_id, departments(name)').single();
       
     if (error) {
       if (error.code === '23505') throw new Error('Email already exists');
       throw error;
     }
-    res.status(201).json(data);
+    res.status(201).json({
+      ...data,
+      name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.email,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -217,8 +239,11 @@ router.put('/users/:id', ...adminOnly, async (req, res) => {
   try {
     const { name, email, role, department_id, password, is_active } = req.body;
     
+    // Split full name into first_name / last_name for DB compatibility
+    const nameParts = name ? splitName(name) : {};
+
     const updates = {
-      name,
+      ...nameParts,
       email: email?.toLowerCase(),
       role,
       department_id: department_id || null,
@@ -238,13 +263,16 @@ router.put('/users/:id', ...adminOnly, async (req, res) => {
       .from('users')
       .update(updates)
       .eq('id', req.params.id)
-      .select('*, departments(name)').single();
+      .select('id, email, first_name, last_name, role, is_active, department_id, departments(name)').single();
       
     if (error) {
       if (error.code === '23505') throw new Error('Email already exists');
       throw error;
     }
-    res.json(data);
+    res.json({
+      ...data,
+      name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.email,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -285,8 +313,12 @@ router.post('/users/bulk', ...adminOnly, async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const password_hash = await bcrypt.hash(u.password, salt);
 
+        // Split full name into first_name/last_name columns
+        const { first_name, last_name } = splitName(u.name);
+
         const record = {
-          name: u.name,
+          first_name,
+          last_name,
           email: u.email.toLowerCase(),
           password_hash,
           role: role || u.role || 'student',
@@ -399,15 +431,31 @@ router.get('/reports/security-logs', ...adminOnly, async (req, res) => {
       .from('security_logs')
       .select(`
         *,
-        users(name, email),
+        users(first_name, last_name, email),
         subjects(name, code)
       `)
       .order('timestamp', { ascending: false })
       .limit(100);
 
-    if (error) throw error;
-    res.json(data);
+    // If table doesn't exist yet (42P01), return empty array gracefully
+    if (error) {
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return res.json([]);
+      }
+      throw error;
+    }
+
+    // Normalize user name for frontend compatibility
+    const normalized = (data || []).map(log => ({
+      ...log,
+      users: log.users ? {
+        ...log.users,
+        name: [log.users.first_name, log.users.last_name].filter(Boolean).join(' ') || log.users.email,
+      } : null,
+    }));
+    res.json(normalized);
   } catch (err) {
+    console.error('[Security logs]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -427,7 +475,18 @@ router.get('/reports/security-trends', ...adminOnly, async (req, res) => {
       .order('timestamp', { ascending: false })
       .limit(500);
 
-    if (error) throw error;
+    // If table doesn't exist yet, return empty trends gracefully
+    if (error) {
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return res.json({
+          byType: {},
+          byCourse: {},
+          bySeverity: { low: 0, medium: 0, high: 0, critical: 0 },
+          totalViolations: 0
+        });
+      }
+      throw error;
+    }
 
     const trends = {
       byType: {},
