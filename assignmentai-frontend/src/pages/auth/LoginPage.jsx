@@ -81,11 +81,12 @@ function Field({ label, id, icon: Icon, error, children }) {
 // ── Shared input style ────────────────────────────────────────────────────────
 const inputCls = (hasIcon, hasError) =>
   [
-    'w-full rounded-xl border bg-white/80 px-4 py-2.5 sm:py-3 text-sm text-slate-800',
-    'placeholder:text-slate-400 outline-none transition-all duration-200',
-    'focus:bg-white focus:shadow-[0_0_0_3px_rgba(99,102,241,0.15)]',
+    'w-full rounded-xl border bg-slate-50/50 px-4 py-2.5 sm:py-3 text-sm text-slate-800',
+    'placeholder:text-slate-400 outline-none transition-all duration-300',
+    'hover:bg-white hover:border-indigo-300',
+    'focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10',
     hasIcon ? 'pl-10' : '',
-    hasError ? 'border-red-400 focus:border-red-400' : 'border-slate-200 focus:border-indigo-400',
+    hasError ? 'border-red-400 focus:border-red-400 focus:ring-red-400/10' : 'border-slate-200',
   ].join(' ');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -708,27 +709,27 @@ export default function LoginPage() {
 
         {/* Card */}
         <div
-          className="relative w-full max-w-5xl flex rounded-2xl sm:rounded-3xl overflow-hidden shadow-2xl"
+          className="relative w-full max-w-5xl flex rounded-2xl sm:rounded-3xl overflow-hidden"
           style={{
-            boxShadow: '0 32px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08)',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08)',
           }}
         >
           {/* ── LEFT PANEL ─────────────────────────────────────────────── */}
           <div
             className="hidden lg:flex flex-col justify-between w-5/12 p-10 relative overflow-hidden"
-            style={{ background: 'linear-gradient(160deg, #1a1040 0%, #2d1b6b 40%, #1e1450 100%)' }}
+            style={{ background: 'linear-gradient(145deg, #0f0c29 0%, #302b63 50%, #24243e 100%)' }}
           >
             {/* Decorative rings */}
             <div
-              className="absolute -top-20 -left-20 w-80 h-80 rounded-full border border-white/5"
-              style={{ animation: 'spin-slow 30s linear infinite' }}
+              className="absolute -top-32 -left-32 w-96 h-96 rounded-full border border-white/5 bg-white/[0.02]"
+              style={{ animation: 'spin-slow 40s linear infinite' }}
             />
             <div
-              className="absolute top-1/4 -right-32 w-96 h-96 rounded-full border border-white/5"
-              style={{ animation: 'spin-slow 20s linear infinite reverse' }}
+              className="absolute top-1/3 -right-40 w-[500px] h-[500px] rounded-full border border-white/5 bg-white/[0.01]"
+              style={{ animation: 'spin-slow 30s linear infinite reverse' }}
             />
-            <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-            <div className="absolute inset-0 bg-gradient-to-b from-indigo-600/10 to-purple-900/20" />
+            <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-indigo-500/30 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
 
             {/* Logo */}
             <div className="relative z-10" style={{ animation: 'fadeSlideUp 0.5s ease both' }}>
@@ -748,12 +749,12 @@ export default function LoginPage() {
               {/* Dynamic text */}
               <div key={view} style={{ animation: 'fadeSlideUp 0.5s ease both' }}>
                 <h2
-                  className="text-white text-3xl font-bold leading-snug mb-3"
+                  className="text-3xl lg:text-4xl font-extrabold leading-tight mb-4 text-transparent bg-clip-text bg-gradient-to-br from-white via-indigo-100 to-indigo-300 drop-shadow-sm"
                   style={{ whiteSpace: 'pre-line' }}
                 >
                   {content.title}
                 </h2>
-                <p className="text-white/60 text-sm leading-relaxed mb-8">
+                <p className="text-white/70 text-sm lg:text-base leading-relaxed mb-8 max-w-sm">
                   {content.subtitle}
                 </p>
 
@@ -778,7 +779,16 @@ export default function LoginPage() {
           </div>
 
           {/* ── RIGHT PANEL ────────────────────────────────────────────── */}
-          <div className="flex-1 bg-white p-5 sm:p-8 lg:p-10 flex flex-col justify-center overflow-y-auto max-h-screen relative">
+          <div className="flex-1 bg-white p-5 sm:p-8 lg:p-12 flex flex-col justify-center overflow-y-auto max-h-screen relative z-0">
+            
+            {/* Subtle desktop dotted texture */}
+            <div 
+              className="absolute inset-0 opacity-[0.03] pointer-events-none hidden lg:block -z-10" 
+              style={{ 
+                backgroundImage: 'radial-gradient(circle at 1px 1px, black 1px, transparent 0)', 
+                backgroundSize: '24px 24px' 
+              }} 
+            />
             
             {/* Subtle mobile background glow */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-3xl opacity-50 -z-10 pointer-events-none lg:hidden" />
