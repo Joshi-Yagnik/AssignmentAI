@@ -14,6 +14,7 @@ const storageRoutes = require('./routes/storage.routes');
 const vivaRoutes = require('./routes/viva.routes');
 const materialRoutes = require('./routes/material.routes');
 const requestsRoutes = require('./routes/requests.routes');
+const notificationRoutes = require('./routes/notification.routes');
 
 // Start background grading worker (BullMQ + Redis)
 require('./workers/gradingWorker');
@@ -40,6 +41,7 @@ app.use('/api/assignments', assignmentRoutes);
 app.use('/api/submissions', submissionRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/storage', storageRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/admin/users', usersRoutes);  // must be before /api/admin
 app.use('/api/admin', adminRoutes);
 app.use('/api/viva', vivaRoutes);

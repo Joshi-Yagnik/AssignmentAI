@@ -4,6 +4,7 @@ const supabase = require('../config/supabaseClient');
 const { requireAuth, requireRole } = require('../middleware/auth.middleware');
 const socketManager = require('../sockets/socketManager');
 const { gradingQueue } = require('../queues/gradingQueue');
+const { createNotification } = require('../services/notificationService');
 
 // ─────────────────────────────────────────────────────────────
 // HELPER: Get all assignment IDs created by a teacher
@@ -280,22 +281,42 @@ router.post('/', requireAuth, requireRole(['student']), async (req, res) => {
       console.warn('[SubmissionRoute] Grading queue unavailable (Redis not running). Submission saved without queuing.');
     }
 
-    // ── Emit new submission event to teacher ─────────────────────────────
+    // ── Create persistent notifications ───────────────────────────────────
+    const studentName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || req.user.email;
+    const assignTitle = assignment.title || 'Assignment';
+
+    // Student notification
+    createNotification(
+      student_id,
+      'Submission Received',
+      `Your submission for "${assignTitle}" was successfully received and queued for AI evaluation.`,
+      'success'
+    );
+
+    // Teacher notification
+    if (assignment.created_by) {
+      createNotification(
+        assignment.created_by,
+        'New Submission',
+        `${studentName} submitted "${assignTitle}".`,
+        'info'
+      );
+    }
+
+    // ── Emit new submission socket event to teacher ───────────────────────
     try {
       const io = socketManager.getIO();
-      // Inform the teacher that created this assignment
       if (assignment.created_by) {
         io.to(`user_${assignment.created_by}`).emit('new_submission', {
           submission_id: data.id,
-          student_name: `${req.user.first_name || 'A'} ${req.user.last_name || 'Student'}`,
-          assignment_title: assignment.title || 'Assignment',
-          message: `New submission received for ${assignment.title || 'Assignment'}`
+          student_name: studentName,
+          assignment_title: assignTitle,
+          message: `New submission received for ${assignTitle}`
         });
       } else {
-        // Fallback: emit to all teachers
         io.to('role_teacher').emit('new_submission', {
           submission_id: data.id,
-          student_name: `${req.user.first_name || 'A'} ${req.user.last_name || 'Student'}`,
+          student_name: studentName,
           message: `New submission received.`
         });
       }

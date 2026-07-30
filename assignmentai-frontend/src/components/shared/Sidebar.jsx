@@ -137,11 +137,14 @@ export default function Sidebar({ user }) {
 
         {/* Notification quick-link */}
         <div className="px-3 pb-2">
-          <button className="nav-item w-full">
-            <Bell className="w-[18px] h-[18px] shrink-0" aria-hidden="true" />
-            <span>Notifications</span>
-            <span className="ml-auto text-label-sm bg-danger text-white rounded-full
-                             min-w-[20px] h-5 flex items-center justify-center px-1">3</span>
+          <button 
+            className="nav-item w-full flex items-center justify-between"
+            onClick={() => window.dispatchEvent(new CustomEvent('aaai:toggle-notifications'))}
+          >
+            <div className="flex items-center gap-3">
+              <Bell className="w-[18px] h-[18px] shrink-0" aria-hidden="true" />
+              <span>Notifications</span>
+            </div>
           </button>
         </div>
 

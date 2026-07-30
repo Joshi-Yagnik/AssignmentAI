@@ -61,7 +61,11 @@ export default function TopBar({ title, subtitle, breadcrumb, actions, showSearc
             />
           </div>
         )}
-        <button className="btn-icon relative" aria-label="View Notifications">
+        <button 
+          className="btn-icon relative" 
+          aria-label="View Notifications"
+          onClick={() => window.dispatchEvent(new CustomEvent('aaai:toggle-notifications'))}
+        >
           <Bell className="w-5 h-5" aria-hidden="true" />
           <span className="absolute top-1 right-1 w-2 h-2 bg-danger rounded-full" />
         </button>
