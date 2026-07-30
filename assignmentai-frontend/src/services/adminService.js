@@ -38,3 +38,8 @@ export const getSecurityTrends = ()      => api.get('/admin/reports/security-tre
 export const getReportOverview    = ()   => api.get('/admin/reports/overview').then(r => r.data);
 export const getReportAssignments = ()   => api.get('/admin/reports/assignments').then(r => r.data);
 export const getReportStudents    = ()   => api.get('/admin/reports/students').then(r => r.data);
+
+// ── PLATFORM SETTINGS ───────────────────────────────────────────────────────
+export const getSettings    = ()     => api.get('/admin/settings').then(r => r.data);
+export const updateSettings = (body) => api.patch('/admin/settings', body).then(r => r.data);
+

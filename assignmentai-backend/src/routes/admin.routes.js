@@ -666,4 +666,81 @@ router.get('/reports/students', ...adminOnly, async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// PLATFORM SETTINGS
+// ─────────────────────────────────────────────────────────────
+
+router.get('/settings', ...adminOnly, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('platform_settings')
+      .select('*')
+      .limit(1)
+      .single();
+
+    if (error) {
+      if (error.code === '42P01' || error.message?.includes('does not exist') || error.code === 'PGRST116') {
+        // Return default mock settings if table is missing or empty
+        return res.json({
+          maintenance_mode: false,
+          default_grading_strictness: 'normal',
+          theme_preference: 'system',
+          require_2fa: false,
+          session_timeout_minutes: 120
+        });
+      }
+      throw error;
+    }
+
+    res.json(data);
+  } catch (err) {
+    console.error('[Admin settings GET]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch('/settings', ...adminOnly, async (req, res) => {
+  try {
+    const updates = req.body;
+    
+    // Check if table exists by doing a select first
+    const { data: existing, error: checkErr } = await supabase
+      .from('platform_settings')
+      .select('id')
+      .limit(1)
+      .single();
+
+    if (checkErr && checkErr.code === '42P01') {
+      return res.status(400).json({ error: 'platform_settings table does not exist. Please run the SQL migration.' });
+    }
+
+    let result;
+    if (!existing) {
+      // Insert if empty
+      const { data, error } = await supabase
+        .from('platform_settings')
+        .insert([updates])
+        .select()
+        .single();
+      if (error) throw error;
+      result = data;
+    } else {
+      // Update
+      const { data, error } = await supabase
+        .from('platform_settings')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', existing.id)
+        .select()
+        .single();
+      if (error) throw error;
+      result = data;
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error('[Admin settings PATCH]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

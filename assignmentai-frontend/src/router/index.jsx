@@ -43,6 +43,7 @@ import AdminAIEnginePage from '../pages/admin/AdminAIEnginePage';
 import AdminReportsPage from '../pages/admin/AdminReportsPage';
 import AdminGlobalReportsPage from '../pages/admin/AdminGlobalReportsPage';
 import AdminVivaPage    from '../pages/admin/AdminVivaPage';
+import AdminSettingsPage from '../pages/admin/AdminSettingsPage';
 
 // Analytics
 import StudentGradesPage from '../pages/student/StudentGradesPage';
@@ -178,7 +179,7 @@ export default function AppRouter() {
               <Route path="viva"          element={<AdminVivaPage />} />
               <Route path="reports"       element={<AdminGlobalReportsPage />} />
               <Route path="security"      element={<AdminReportsPage />} />
-              <Route path="settings"      element={<Placeholder title="Settings" />} />
+              <Route path="settings"      element={<AdminSettingsPage />} />
             </Route>
 
             {/* 404 */}
