@@ -108,7 +108,7 @@ export default function StudentDashboard() {
               status: activeSession.status,
               date: scheduledAt ? scheduledAt.toLocaleDateString() : '—',
               time: scheduledAt ? scheduledAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—',
-              questionsCount: v.total_questions || meta.questions?.length || 0,
+              questionsCount: activeSession.total_questions || meta.questions?.length || 0,
             });
           }
         }
