@@ -516,4 +516,154 @@ router.get('/reports/security-trends', ...adminOnly, async (req, res) => {
   }
 });
 
+
+// ─────────────────────────────────────────────────────────────
+// REPORTS — SYSTEM OVERVIEW
+// ─────────────────────────────────────────────────────────────
+router.get('/reports/overview', ...adminOnly, async (req, res) => {
+  try {
+    const [
+      { count: totalTeachers },
+      { count: totalStudents },
+      { count: totalAssignments },
+      { count: totalSubmissions },
+      { count: gradedSubmissions },
+      { data: recentSubs },
+    ] = await Promise.all([
+      supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'teacher'),
+      supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'student'),
+      supabase.from('assignments').select('id', { count: 'exact', head: true }),
+      supabase.from('submissions').select('id', { count: 'exact', head: true }),
+      supabase.from('submissions').select('id', { count: 'exact', head: true }).eq('status', 'graded'),
+      supabase.from('ai_reports').select('final_score').not('final_score', 'is', null).limit(1000),
+    ]);
+
+    const scores = (recentSubs || []).map(r => r.final_score).filter(s => s !== null);
+    const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const atRisk   = scores.filter(s => s < 60).length;
+    const passing  = scores.filter(s => s >= 60).length;
+
+    res.json({
+      totalTeachers:    totalTeachers    || 0,
+      totalStudents:    totalStudents    || 0,
+      totalAssignments: totalAssignments || 0,
+      totalSubmissions: totalSubmissions || 0,
+      gradedSubmissions: gradedSubmissions || 0,
+      avgScore,
+      atRisk,
+      passing,
+    });
+  } catch (err) {
+    console.error('[Reports overview]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// REPORTS — ASSIGNMENT BREAKDOWN
+// ─────────────────────────────────────────────────────────────
+router.get('/reports/assignments', ...adminOnly, async (req, res) => {
+  try {
+    // Fetch all assignments with subject info
+    const { data: assignments, error: aErr } = await supabase
+      .from('assignments')
+      .select(`
+        id, title, deadline, max_marks, created_at,
+        subjects(name, code),
+        users!assignments_created_by_fkey(first_name, last_name, email)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (aErr) throw aErr;
+
+    // Fetch submissions with AI reports for analytics
+    const { data: submissions, error: sErr } = await supabase
+      .from('submissions')
+      .select('assignment_id, status, ai_reports(final_score)');
+
+    if (sErr) throw sErr;
+
+    // Aggregate per assignment
+    const result = (assignments || []).map(a => {
+      const subs = (submissions || []).filter(s => s.assignment_id === a.id);
+      const graded = subs.filter(s => s.status === 'graded' && s.ai_reports?.length > 0);
+      const scores = graded.map(s => s.ai_reports[0]?.final_score).filter(v => v !== null && v !== undefined);
+      const avg = scores.length > 0 ? Math.round(scores.reduce((acc, v) => acc + v, 0) / scores.length) : null;
+      const teacherName = a.users
+        ? [a.users.first_name, a.users.last_name].filter(Boolean).join(' ') || a.users.email
+        : 'Unknown';
+      return {
+        id: a.id,
+        title: a.title,
+        subject: a.subjects?.name || '—',
+        subjectCode: a.subjects?.code || '—',
+        teacher: teacherName,
+        deadline: a.deadline,
+        maxMarks: a.max_marks,
+        totalSubmissions: subs.length,
+        gradedCount: graded.length,
+        pendingCount: subs.filter(s => s.status === 'submitted').length,
+        avgScore: avg,
+        passRate: scores.length > 0 ? Math.round((scores.filter(s => s >= 60).length / scores.length) * 100) : null,
+      };
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('[Reports assignments]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// REPORTS — STUDENT PERFORMANCE
+// ─────────────────────────────────────────────────────────────
+router.get('/reports/students', ...adminOnly, async (req, res) => {
+  try {
+    // Fetch all students
+    const { data: students, error: stErr } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email, department_id, created_at, departments(name)')
+      .eq('role', 'student')
+      .order('created_at', { ascending: false });
+
+    if (stErr) throw stErr;
+
+    // Fetch all submissions with AI reports
+    const { data: submissions, error: sErr } = await supabase
+      .from('submissions')
+      .select('student_id, assignment_id, status, submitted_at, ai_reports(final_score)');
+
+    if (sErr) throw sErr;
+
+    // Aggregate per student
+    const result = (students || []).map(s => {
+      const mySubs = (submissions || []).filter(sub => sub.student_id === s.id);
+      const graded = mySubs.filter(sub => sub.status === 'graded' && sub.ai_reports?.length > 0);
+      const scores = graded.map(sub => sub.ai_reports[0]?.final_score).filter(v => v !== null && v !== undefined);
+      const avg = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+      const latest = mySubs.length > 0
+        ? mySubs.reduce((a, b) => new Date(a.submitted_at) > new Date(b.submitted_at) ? a : b).submitted_at
+        : null;
+
+      return {
+        id: s.id,
+        name: [s.first_name, s.last_name].filter(Boolean).join(' ') || s.email,
+        email: s.email,
+        department: s.departments?.name || '—',
+        submissionCount: mySubs.length,
+        gradedCount: graded.length,
+        avgScore: avg,
+        status: avg === null ? 'pending' : avg >= 70 ? 'good' : avg >= 50 ? 'average' : 'at_risk',
+        latestSubmission: latest,
+      };
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('[Reports students]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
