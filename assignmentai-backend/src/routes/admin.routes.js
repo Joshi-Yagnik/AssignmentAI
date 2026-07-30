@@ -569,8 +569,7 @@ router.get('/reports/assignments', ...adminOnly, async (req, res) => {
       .from('assignments')
       .select(`
         id, title, deadline, max_marks, created_at,
-        subjects(name, code),
-        users!assignments_created_by_fkey(first_name, last_name, email)
+        subjects(name, code)
       `)
       .order('created_at', { ascending: false });
 
@@ -589,9 +588,8 @@ router.get('/reports/assignments', ...adminOnly, async (req, res) => {
       const graded = subs.filter(s => s.status === 'graded' && s.ai_reports?.length > 0);
       const scores = graded.map(s => s.ai_reports[0]?.final_score).filter(v => v !== null && v !== undefined);
       const avg = scores.length > 0 ? Math.round(scores.reduce((acc, v) => acc + v, 0) / scores.length) : null;
-      const teacherName = a.users
-        ? [a.users.first_name, a.users.last_name].filter(Boolean).join(' ') || a.users.email
-        : 'Unknown';
+      // Teacher tracking might be derived from subjects.teachers mapping if it exists, otherwise omit
+      const teacherName = '—';
       return {
         id: a.id,
         title: a.title,
@@ -679,7 +677,7 @@ router.get('/settings', ...adminOnly, async (req, res) => {
       .single();
 
     if (error) {
-      if (error.code === '42P01' || error.message?.includes('does not exist') || error.code === 'PGRST116') {
+      if (error.code === '42P01' || error.code === 'PGRST205' || error.message?.includes('does not exist') || error.code === 'PGRST116') {
         // Return default mock settings if table is missing or empty
         return res.json({
           maintenance_mode: false,
@@ -708,9 +706,9 @@ router.patch('/settings', ...adminOnly, async (req, res) => {
       .from('platform_settings')
       .select('id')
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (checkErr && checkErr.code === '42P01') {
+    if (checkErr && (checkErr.code === '42P01' || checkErr.code === 'PGRST205')) {
       return res.status(400).json({ error: 'platform_settings table does not exist. Please run the SQL migration.' });
     }
 
