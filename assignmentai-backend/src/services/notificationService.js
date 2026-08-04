@@ -1,5 +1,5 @@
 const supabase = require('../config/supabaseClient');
-const { getIo } = require('../socket');
+const { getIO } = require('../sockets/socketManager');
 
 /**
  * Create a notification in the database and optionally emit a real-time event.
@@ -37,7 +37,7 @@ async function createNotification(userId, title, message, type = 'info') {
     };
 
     // 2. Emit real-time socket event
-    const io = getIo();
+    const io = getIO();
     if (io) {
       // Assuming users join a room with their userId
       io.to(userId).emit('new_notification', notificationPayload);
