@@ -97,7 +97,7 @@ Return ONLY a JSON object with these exact keys:
           { role: 'system', content: 'You are an AI examiner that outputs only valid JSON.' },
           { role: 'user', content: prompt }
         ],
-        model: 'grok-beta',
+        model: 'grok-2-latest',
         temperature: 0.5
       },
       {
@@ -111,7 +111,7 @@ Return ONLY a JSON object with these exact keys:
     content = content.replace(/```json/g, '').replace(/```/g, '').trim();
     return JSON.parse(content);
   } catch (err) {
-    console.error("Grok AI Error (next-question):", err.message);
+    console.error("Grok AI Error (next-question):", err.response?.data || err.message);
     throw new Error('Failed to generate next question');
   }
 }
@@ -168,7 +168,7 @@ Return ONLY valid JSON with these exact keys.
           { role: 'system', content: 'You are an AI examiner that outputs only valid JSON.' },
           { role: 'user', content: prompt }
         ],
-        model: 'grok-beta',
+        model: 'grok-2-latest',
         temperature: 0.2
       },
       {
@@ -182,7 +182,7 @@ Return ONLY valid JSON with these exact keys.
     content = content.replace(/```json/g, '').replace(/```/g, '').trim();
     return JSON.parse(content);
   } catch (err) {
-    console.error("Grok AI Error (evaluate):", err.message);
+    console.error("Grok AI Error (evaluate):", err.response?.data || err.message);
     throw new Error('Failed to evaluate viva session');
   }
 }

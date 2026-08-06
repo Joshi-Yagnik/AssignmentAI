@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
 import api from '../../services/api';
@@ -21,8 +22,8 @@ function GradeBar({ score }) {
     </div>
   );
 }
-
 export default function TeacherStudentsPage() {
+  const navigate = useNavigate();
   const toast = useToast();
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -244,7 +245,10 @@ export default function TeacherStudentsPage() {
                         )}
                       </td>
                       <td className="p-4 text-right">
-                        <button className="btn-ghost btn-sm text-primary group-hover:bg-primary/5">
+                        <button 
+                          className="btn-ghost btn-sm text-primary group-hover:bg-primary/5"
+                          onClick={() => navigate(`/teacher/students/${s.id}`)}
+                        >
                           View <ChevronRight className="w-4 h-4 inline-block" />
                         </button>
                       </td>

@@ -188,6 +188,55 @@ router.get('/teacher/students', requireAuth, requireRole(['teacher', 'admin']), 
 });
 
 // ─────────────────────────────────────────────────────────────
+// GET /teacher/students/:studentId — get specific student details, submissions, and security logs
+// ─────────────────────────────────────────────────────────────
+router.get('/teacher/students/:studentId', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const teacherId = req.user.id;
+
+    // 1. Fetch Student Profile
+    const { data: student, error: stErr } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email, created_at')
+      .eq('id', studentId)
+      .single();
+
+    if (stErr || !student) {
+      return res.status(404).json({ error: 'Student not found.' });
+    }
+
+    // 2. Fetch submissions submitted to THIS teacher
+    const { data: submissions, error: subErr } = await supabase
+      .from('submissions')
+      .select('*, assignments!inner(title, created_by, deadline, max_marks), ai_reports(id, final_score, ai_score, feedback_summary)')
+      .eq('student_id', studentId)
+      .eq('assignments.created_by', teacherId)
+      .order('submitted_at', { ascending: false });
+
+    if (subErr) throw subErr;
+
+    // 3. Fetch security logs for this student
+    const { data: securityLogs, error: logErr } = await supabase
+      .from('security_logs')
+      .select('*')
+      .eq('user_id', studentId)
+      .order('timestamp', { ascending: false });
+
+    if (logErr) throw logErr;
+
+    res.json({
+      profile: student,
+      submissions: submissions || [],
+      securityLogs: securityLogs || []
+    });
+  } catch (err) {
+    console.error('[GET /teacher/students/:studentId]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 // GET /me — student's own submissions
 // ─────────────────────────────────────────────────────────────
 router.get('/me', requireAuth, requireRole(['student']), async (req, res) => {

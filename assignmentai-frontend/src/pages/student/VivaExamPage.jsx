@@ -160,8 +160,15 @@ export default function VivaExamPage() {
       streamRef.current.getVideoTracks().forEach(t => t.enabled = camOn);
     }
     if (recognitionRef.current) {
-      if (micOn) recognitionRef.current.start().catch(() => {});
-      else recognitionRef.current.stop();
+      if (micOn) {
+        try {
+          recognitionRef.current.start();
+        } catch (e) {
+          // Already started
+        }
+      } else {
+        recognitionRef.current.stop();
+      }
     }
   }, [micOn, camOn]);
 

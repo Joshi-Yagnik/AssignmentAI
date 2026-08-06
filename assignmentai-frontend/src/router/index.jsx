@@ -30,6 +30,7 @@ import TeacherGradingQueuePage from '../pages/teacher/TeacherGradingQueuePage';
 import TeacherVivaPage      from '../pages/teacher/TeacherVivaPage';
 import TeacherVivaMonitorPage from '../pages/teacher/TeacherVivaMonitorPage';
 import TeacherStudentsPage  from '../pages/teacher/TeacherStudentsPage';
+import TeacherStudentDetailsPage from '../pages/teacher/TeacherStudentDetailsPage';
 import TeacherMaterialsPage from '../pages/teacher/TeacherMaterialsPage';
 
 // Admin
@@ -154,6 +155,7 @@ export default function AppRouter() {
               <Route path="viva/monitor/:sessionId" element={<TeacherVivaMonitorPage />} />
               <Route path="viva/report/:sessionId" element={<VivaReportPage />} />
               <Route path="students"    element={<TeacherStudentsPage />} />
+              <Route path="students/:studentId" element={<TeacherStudentDetailsPage />} />
               <Route path="requests"    element={<StudentRequestsPage />} />
               <Route path="analytics"   element={<TeacherAnalyticsPage />} />
               <Route path="review/:submissionId" element={<ReviewWorkPage />} />
