@@ -61,7 +61,7 @@ router.get('/', requireAuth, async (req, res) => {
       .select(`
         *,
         subjects(id, name, code),
-        users(id, name)
+        users(id, first_name, last_name)
       `)
       .order('created_at', { ascending: false });
 

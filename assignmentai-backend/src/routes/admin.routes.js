@@ -299,11 +299,16 @@ router.post('/users/bulk', ...adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'users array is required' });
     }
 
-    const success = [];
-    const failed = [];
+    // Pre-load all departments once so we don't hit DB per row
+    const { data: allDepts } = await supabase
+      .from('departments')
+      .select('id, code');
+    const deptByCode = {};
+    (allDepts || []).forEach(d => { deptByCode[d.code.toUpperCase()] = d.id; });
 
-    // Process sequentially (or map Promise.all if concurrency is preferred, 
-    // but sequential prevents DB connection pool limits for big uploads)
+    const success = [];
+    const failed  = [];
+
     for (const u of users) {
       try {
         if (!u.email || !u.name || !u.password) {
@@ -315,6 +320,26 @@ router.post('/users/bulk', ...adminOnly, async (req, res) => {
 
         // Split full name into first_name/last_name columns
         const { first_name, last_name } = splitName(u.name);
+
+        // ── Resolve department_code → department_id ─────────────────────────
+        let department_id = null;
+        const inputVal = (u.department_code || u.dept_code || u.department_id || '').trim();
+
+        if (inputVal) {
+          // Check if the user pasted a raw UUID
+          const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(inputVal);
+          
+          if (isUUID) {
+            department_id = inputVal;
+          } else {
+            // Otherwise treat it as a department code (even if they used the old 'department_id' CSV column)
+            const deptCode = inputVal.toUpperCase();
+            if (!deptByCode[deptCode]) {
+              throw new Error(`Department code '${deptCode}' not found. Check the code or create the department first.`);
+            }
+            department_id = deptByCode[deptCode];
+          }
+        }
 
         const record = {
           first_name,
@@ -585,8 +610,8 @@ router.get('/reports/assignments', ...adminOnly, async (req, res) => {
     // Aggregate per assignment
     const result = (assignments || []).map(a => {
       const subs = (submissions || []).filter(s => s.assignment_id === a.id);
-      const graded = subs.filter(s => s.status === 'graded' && s.ai_reports?.length > 0);
-      const scores = graded.map(s => s.ai_reports[0]?.final_score).filter(v => v !== null && v !== undefined);
+      const graded = subs.filter(s => s.status === 'graded' && !!s.ai_reports);
+      const scores = graded.map(s => s.ai_reports?.final_score).filter(v => v !== null && v !== undefined);
       const avg = scores.length > 0 ? Math.round(scores.reduce((acc, v) => acc + v, 0) / scores.length) : null;
       // Teacher tracking might be derived from subjects.teachers mapping if it exists, otherwise omit
       const teacherName = '—';
@@ -637,8 +662,8 @@ router.get('/reports/students', ...adminOnly, async (req, res) => {
     // Aggregate per student
     const result = (students || []).map(s => {
       const mySubs = (submissions || []).filter(sub => sub.student_id === s.id);
-      const graded = mySubs.filter(sub => sub.status === 'graded' && sub.ai_reports?.length > 0);
-      const scores = graded.map(sub => sub.ai_reports[0]?.final_score).filter(v => v !== null && v !== undefined);
+      const graded = mySubs.filter(sub => sub.status === 'graded' && !!sub.ai_reports);
+      const scores = graded.map(sub => sub.ai_reports?.final_score).filter(v => v !== null && v !== undefined);
       const avg = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
       const latest = mySubs.length > 0
         ? mySubs.reduce((a, b) => new Date(a.submitted_at) > new Date(b.submitted_at) ? a : b).submitted_at

@@ -111,7 +111,7 @@ export default function TeacherDashboard() {
             assignment: s.assignments?.title || 'Unknown Assignment',
             course: s.assignments?.class_id || 'N/A',
             submitted: new Date(s.submitted_at).toLocaleDateString(),
-            aiGrade: s.ai_reports?.[0]?.final_score || 0
+            aiGrade: s.ai_reports?.final_score || 0
           };
         });
         setPendingSubmissions(subs);

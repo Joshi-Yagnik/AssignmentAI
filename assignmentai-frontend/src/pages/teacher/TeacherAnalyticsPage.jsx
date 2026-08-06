@@ -48,19 +48,19 @@ export default function TeacherAnalyticsPage() {
           try {
             const { data: subs } = await api.get(`/submissions/assignment/${a.id}`);
             const list = subs || [];
-            const graded = list.filter(s => s.ai_reports && s.ai_reports.length > 0 && s.ai_reports[0].final_score !== null);
+            const graded = list.filter(s => s.ai_reports && !!s.ai_reports && s.ai_reports.final_score !== null);
             const avgScore = graded.length > 0
-              ? Math.round(graded.reduce((acc, s) => acc + s.ai_reports[0].final_score, 0) / graded.length)
+              ? Math.round(graded.reduce((acc, s) => acc + s.ai_reports.final_score, 0) / graded.length)
               : null;
 
             // AI Accuracy: how close was AI score vs teacher-overridden final_score?
             // If ai_score and final_score differ, teacher corrected it.
             const maxMarks = a.max_marks || 100;
-            const withAiScore = graded.filter(s => s.ai_reports[0].ai_score !== null && s.ai_reports[0].ai_score !== undefined);
+            const withAiScore = graded.filter(s => s.ai_reports.ai_score !== null && s.ai_reports.ai_score !== undefined);
             let avgAccuracy = null;
             if (withAiScore.length > 0) {
               const totalAccuracy = withAiScore.reduce((acc, s) => {
-                const diff = Math.abs((s.ai_reports[0].ai_score || 0) - (s.ai_reports[0].final_score || 0));
+                const diff = Math.abs((s.ai_reports.ai_score || 0) - (s.ai_reports.final_score || 0));
                 const accuracy = Math.max(0, 100 - (diff / maxMarks) * 100);
                 return acc + accuracy;
               }, 0);

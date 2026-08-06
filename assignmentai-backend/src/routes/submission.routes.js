@@ -3,7 +3,8 @@ const router = express.Router();
 const supabase = require('../config/supabaseClient');
 const { requireAuth, requireRole } = require('../middleware/auth.middleware');
 const socketManager = require('../sockets/socketManager');
-const { gradingQueue } = require('../queues/gradingQueue');
+const { gradingQueue }   = require('../queues/gradingQueue');
+const { gradeSubmission } = require('../services/gradingService');
 const { createNotification } = require('../services/notificationService');
 
 // ─────────────────────────────────────────────────────────────
@@ -155,8 +156,8 @@ router.get('/teacher/students', requireAuth, requireRole(['teacher', 'admin']), 
       }
       const st = studentMap[sid];
       st.submission_count++;
-      if (sub.status === 'graded' && sub.ai_reports && sub.ai_reports.length > 0) {
-        const score = sub.ai_reports[0].final_score;
+      if (sub.status === 'graded' || !!sub.ai_reports) {
+        const score = sub.ai_reports.final_score;
         if (score !== null && score !== undefined) {
           st.graded_count++;
           st.total_score += score;
@@ -271,14 +272,25 @@ router.post('/', requireAuth, requireRole(['student']), async (req, res) => {
 
     if (error) throw error;
 
-    // ── Enqueue AI grading job ─────────────────────────────────────────────
+    // ── Enqueue AI grading job (or fallback to direct grading) ─────────────
     let gradingJobId = null;
     if (gradingQueue) {
       const job = await gradingQueue.add('grade', { submissionId: data.id });
       gradingJobId = job.id;
       console.log(`[SubmissionRoute] Enqueued grading job ${job.id} for submission ${data.id}`);
     } else {
-      console.warn('[SubmissionRoute] Grading queue unavailable (Redis not running). Submission saved without queuing.');
+      // Redis unavailable — grade directly in the background (fire-and-forget).
+      // setImmediate defers execution until after the HTTP response is sent.
+      console.warn('[SubmissionRoute] Redis unavailable — starting direct grading (fire-and-forget) for submission', data.id);
+      const sid = data.id;
+      setImmediate(async () => {
+        try {
+          await gradeSubmission(sid);
+          console.log(`[SubmissionRoute] Direct grading complete for ${sid}`);
+        } catch (err) {
+          console.error(`[SubmissionRoute] Direct grading failed for ${sid}:`, err.message);
+        }
+      });
     }
 
     // ── Create persistent notifications ───────────────────────────────────
@@ -372,7 +384,9 @@ router.patch('/:id/grade', requireAuth, requireRole(['teacher', 'admin']), async
       .select()
       .single();
 
-    if (subErr) throw subErr;
+    if (subErr && !subErr.message.includes('updated_at')) {
+      throw subErr;
+    }
 
     // Update the AI report with the teacher-confirmed final score and remarks
     const { data: report, error: repErr } = await supabase

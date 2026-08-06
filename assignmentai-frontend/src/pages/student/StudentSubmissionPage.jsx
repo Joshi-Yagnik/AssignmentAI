@@ -101,7 +101,7 @@ export default function StudentSubmissionPage() {
   const streamRef = useRef(null);
   const [streamError, setStreamError] = useState(false);
 
-  const isGraded      = assignment?.submission?.status === 'graded';
+  const isGraded      = assignment?.submission?.status === 'graded' || (assignment?.submission?.ai_reports && !!assignment.submission.ai_reports);
   const isSubmitted   = !!fileUrl;
   const isPastDeadline = assignment ? new Date() > new Date(assignment.deadline) : false;
   const canResubmit   = isSubmitted && !isGraded && !isPastDeadline && (assignment?.allow_resubmission ?? true);
@@ -188,7 +188,7 @@ export default function StudentSubmissionPage() {
   const acceptAttr = assignment?.allowed_formats?.join(',') || '.pdf,.docx,.doc,.png,.jpg,.jpeg';
   const formatLabels = assignment?.allowed_formats?.map(f => f.replace('.', '').toUpperCase()).join(', ') || 'PDF, DOCX, PNG, JPG';
 
-  const score         = assignment?.submission?.ai_reports?.[0]?.final_score;
+  const score         = assignment?.submission?.ai_reports?.final_score;
 
   const handleSubmit = async (e) => {
     e.preventDefault();

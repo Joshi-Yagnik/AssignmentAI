@@ -23,13 +23,13 @@ export default function StudentGradesPage() {
 
       // Normalize Assignments
       const assignmentsGraded = (subsData || [])
-        .filter(sub => sub.status === 'graded' && sub.ai_reports?.length > 0)
+        .filter(sub => sub.status === 'graded' || !!sub.ai_reports)
         .map(sub => ({
           id: sub.id,
           type: 'assignment',
           title: sub.assignments?.title || 'Assignment',
           date: new Date(sub.submitted_at),
-          score: sub.ai_reports[0].final_score || 0,
+          score: sub.ai_reports.final_score || 0,
           max: sub.assignments?.max_marks || 100,
         }));
 

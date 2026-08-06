@@ -71,7 +71,8 @@ function formatDeadline(iso) {
 }
 
 function getEffectiveStatus(assignment) {
-  if (assignment.submission?.status === 'graded')    return 'graded';
+  const isGraded = assignment.submission?.status === 'graded' || (assignment.submission?.ai_reports && assignment.submission.ai_reports.length > 0);
+  if (isGraded)    return 'graded';
   if (assignment.submission?.status === 'submitted') return 'submitted';
   const now = new Date();
   if (new Date(assignment.deadline) < now)           return 'overdue';
@@ -205,7 +206,7 @@ export default function StudentAssignmentsPage() {
               const isOverdue = a.effectiveStatus === 'overdue';
               const isPending = a.effectiveStatus === 'pending';
               const isGraded  = a.effectiveStatus === 'graded';
-              const score     = a.submission?.ai_reports?.[0]?.final_score;
+              const score     = a.submission?.ai_reports?.final_score;
 
               return (
                 <div key={a.id} className="card flex flex-col gap-3 hover:shadow-md transition-shadow">

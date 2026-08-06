@@ -22,9 +22,9 @@ const EMPTY_FORM = {
 };
 
 const CSV_TEMPLATE_STUDENT =
-  'name,email,password,department_id\nJane Smith,jane@example.com,Pass@123,';
+  'name,email,password,department_code\nJane Smith,jane@example.com,Pass@123,CSE';
 const CSV_TEMPLATE_TEACHER =
-  'name,email,password,department_id\nJohn Doe,john@example.com,Pass@123,';
+  'name,email,password,department_code\nJohn Doe,john@example.com,Pass@123,IT';
 
 function parseCsv(text) {
   const lines = text.trim().split('\n').filter(Boolean);

@@ -14,7 +14,7 @@ router.get('/', ...adminOnly, async (req, res) => {
     const { role } = req.query;
     let query = supabase
       .from('users')
-      .select('id, name, email, role, department_id, created_at, departments(name, code)')
+      .select('id, first_name, last_name, email, role, department_id, created_at, departments(name, code)')
       .order('created_at', { ascending: false });
 
     if (role && role !== 'all') {
@@ -25,7 +25,14 @@ router.get('/', ...adminOnly, async (req, res) => {
 
     const { data, error } = await query;
     if (error) throw error;
-    res.json(data);
+
+    // Normalise: add a virtual `name` field for frontend compatibility
+    const normalised = (data || []).map(u => ({
+      ...u,
+      name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email,
+    }));
+
+    res.json(normalised);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -36,9 +43,18 @@ router.get('/', ...adminOnly, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/', ...adminOnly, async (req, res) => {
   try {
-    const { name, email, password, role, department_id } = req.body;
+    const { name, first_name, last_name, email, password, role, department_id } = req.body;
 
-    if (!name || !email || !password || !role) {
+    // Accept either `name` (split on first space) or `first_name`/`last_name`
+    let fName = first_name || '';
+    let lName = last_name  || '';
+    if (!fName && name) {
+      const parts = name.trim().split(' ');
+      fName = parts[0];
+      lName = parts.slice(1).join(' ');
+    }
+
+    if (!fName || !email || !password || !role) {
       return res.status(400).json({ error: 'name, email, password, and role are required' });
     }
     if (!['teacher', 'student'].includes(role)) {
@@ -49,12 +65,16 @@ router.post('/', ...adminOnly, async (req, res) => {
 
     const { data, error } = await supabase
       .from('users')
-      .insert([{ name, email, password_hash, role, department_id: department_id || null }])
-      .select('id, name, email, role, department_id, created_at, departments(name, code)')
+      .insert([{ first_name: fName, last_name: lName, email, password_hash, role, department_id: department_id || null }])
+      .select('id, first_name, last_name, email, role, department_id, created_at, departments(name, code)')
       .single();
 
     if (error) throw error;
-    res.status(201).json(data);
+
+    res.status(201).json({
+      ...data,
+      name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.email,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -65,8 +85,24 @@ router.post('/', ...adminOnly, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.put('/:id', ...adminOnly, async (req, res) => {
   try {
-    const { name, email, password, role, department_id } = req.body;
-    const updates = { name, email, role, department_id: department_id || null };
+    const { name, first_name, last_name, email, password, role, department_id } = req.body;
+
+    // Accept either `name` or `first_name`/`last_name`
+    let fName = first_name || '';
+    let lName = last_name  || '';
+    if (!fName && name) {
+      const parts = name.trim().split(' ');
+      fName = parts[0];
+      lName = parts.slice(1).join(' ');
+    }
+
+    const updates = {
+      ...(fName && { first_name: fName }),
+      ...(lName !== undefined && { last_name: lName }),
+      email,
+      role,
+      department_id: department_id || null,
+    };
 
     if (password) {
       updates.password_hash = await bcrypt.hash(password, 10);
@@ -76,11 +112,15 @@ router.put('/:id', ...adminOnly, async (req, res) => {
       .from('users')
       .update(updates)
       .eq('id', req.params.id)
-      .select('id, name, email, role, department_id, created_at, departments(name, code)')
+      .select('id, first_name, last_name, email, role, department_id, created_at, departments(name, code)')
       .single();
 
     if (error) throw error;
-    res.json(data);
+
+    res.json({
+      ...data,
+      name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.email,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -116,6 +156,13 @@ router.post('/bulk', ...adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'Role must be teacher or student' });
     }
 
+    // Pre-load all departments once — avoid one DB round-trip per row
+    const { data: allDepts } = await supabase
+      .from('departments')
+      .select('id, code');
+    const deptByCode = {};
+    (allDepts || []).forEach(d => { deptByCode[d.code.toUpperCase()] = d.id; });
+
     const success = [];
     const failed  = [];
 
@@ -126,24 +173,53 @@ router.post('/bulk', ...adminOnly, async (req, res) => {
           continue;
         }
 
+        const parts = (user.name || '').trim().split(' ');
+        const fName = parts[0];
+        const lName = parts.slice(1).join(' ');
+
         const password_hash = await bcrypt.hash(user.password, 10);
+
+        // ── Resolve department_code → department_id ───────────────────────
+        let department_id = null;
+        const inputVal = (user.department_code || user.dept_code || user.department_id || '').trim();
+
+        if (inputVal) {
+          // Check if it's a valid UUID
+          const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(inputVal);
+          
+          if (isUUID) {
+            department_id = inputVal;
+          } else {
+            // Treat as department code, even if they filled out the legacy 'department_id' column
+            const deptCode = inputVal.toUpperCase();
+            if (!deptByCode[deptCode]) {
+              failed.push({ email: user.email, error: `Department code '${deptCode}' not found. Check the code or create the department first.` });
+              continue;
+            }
+            department_id = deptByCode[deptCode];
+          }
+        }
 
         const { data, error } = await supabase
           .from('users')
           .insert([{
-            name: user.name,
-            email: user.email,
+            first_name: fName,
+            last_name:  lName,
+            email:      user.email,
             password_hash,
             role,
-            department_id: user.department_id || null,
+            department_id,
           }])
-          .select('id, name, email, role')
+          .select('id, first_name, last_name, email, role')
           .single();
 
         if (error) {
           failed.push({ email: user.email, error: error.message });
         } else {
-          success.push(data);
+          success.push({
+            ...data,
+            name: [data.first_name, data.last_name].filter(Boolean).join(' '),
+          });
         }
       } catch (e) {
         failed.push({ email: user.email || '?', error: e.message });
@@ -157,3 +233,4 @@ router.post('/bulk', ...adminOnly, async (req, res) => {
 });
 
 module.exports = router;
+

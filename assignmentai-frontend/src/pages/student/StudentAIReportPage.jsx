@@ -172,11 +172,13 @@ export default function StudentAIReportPage() {
   const [jobState, setJobState] = useState({ status: 'loading', progress: 0 });
   const [showOcr, setShowOcr] = useState(false);
 
-  const pollRef = useRef(null);
+  const pollRef  = useRef(null);
+  const failsRef = useRef(0); // consecutive poll failures
 
   const checkStatus = useCallback(async () => {
     try {
       const status = await getReportStatus(submissionId);
+      failsRef.current = 0; // reset on success
       setJobState(status);
       if (status.status === 'completed') {
         clearInterval(pollRef.current);
@@ -186,13 +188,21 @@ export default function StudentAIReportPage() {
         clearInterval(pollRef.current);
       }
     } catch {
+      failsRef.current += 1;
+      if (failsRef.current >= 5) {
+        // Stop polling after 5 consecutive network failures
+        clearInterval(pollRef.current);
+        setJobState({ status: 'error', progress: 0 });
+        return;
+      }
+      // Optimistically advance the progress bar so the UI doesn't look frozen
       setJobState(prev => ({ ...prev, status: 'processing', progress: Math.min((prev.progress || 0) + 5, 90) }));
     }
   }, [submissionId]);
 
   useEffect(() => {
     checkStatus();
-    pollRef.current = setInterval(checkStatus, 3000);
+    pollRef.current = setInterval(checkStatus, 5000); // poll every 5 s
     return () => clearInterval(pollRef.current);
   }, [checkStatus]);
 
@@ -218,7 +228,7 @@ export default function StudentAIReportPage() {
 
       <main className="p-6 flex flex-col gap-6 max-w-4xl mx-auto w-full">
 
-        {/* Processing / Failed */}
+        {/* Processing / Failed / Network Error */}
         {jobState.status !== 'completed' && !report && (
           <div className="card">
             {jobState.status === 'failed' ? (
@@ -228,6 +238,20 @@ export default function StudentAIReportPage() {
                 <p className="text-label-md text-ink-secondary max-w-md">
                   The AI grading job encountered an error. Please contact your instructor.
                 </p>
+              </div>
+            ) : jobState.status === 'error' ? (
+              <div className="flex flex-col items-center gap-4 py-16 text-center">
+                <AlertCircle className="w-12 h-12 text-warning" />
+                <p className="text-headline-sm text-ink-primary">Connection Issue</p>
+                <p className="text-label-md text-ink-secondary max-w-md">
+                  Could not reach the server after several attempts. The grading may still be running in the background.
+                </p>
+                <button
+                  className="btn btn-secondary btn-sm flex items-center gap-2"
+                  onClick={() => { failsRef.current = 0; setJobState({ status: 'processing', progress: 0 }); pollRef.current = setInterval(checkStatus, 5000); checkStatus(); }}
+                >
+                  <RefreshCw className="w-4 h-4" /> Retry
+                </button>
               </div>
             ) : (
               <ProcessingState progress={jobState.progress || 0} />
@@ -326,14 +350,14 @@ export default function StudentAIReportPage() {
 
             {/* ─ Teacher Remarks / AI Summary ────────────────────────── */}
             {report.feedback_summary && (
-              <div className={`card border ${submission?.status === 'graded' ? 'border-success/30 bg-success/5' : 'border-primary-100 bg-primary-50/60'}`}>
-                <div className="flex items-center gap-2 mb-3">
-                  <MessageSquare className={`w-5 h-5 ${submission?.status === 'graded' ? 'text-success' : 'text-primary'}`} />
-                  <h2 className={`text-headline-sm ${submission?.status === 'graded' ? 'text-success' : 'text-primary-900'}`}>
-                    {submission?.status === 'graded' ? 'Teacher Remarks' : 'AI Feedback Summary'}
+              <div className={`card border ${(submission?.status === 'graded' || report) ? 'border-success/30 bg-success/5' : 'border-primary-100 bg-primary-50/60'}`}>
+                <div className="flex gap-4">
+                  <MessageSquare className={`w-5 h-5 ${(submission?.status === 'graded' || report) ? 'text-success' : 'text-primary'}`} />
+                  <h2 className={`text-headline-sm ${(submission?.status === 'graded' || report) ? 'text-success' : 'text-primary-900'}`}>
+                    {(submission?.status === 'graded' || report) ? 'Teacher Remarks' : 'AI Feedback Summary'}
                   </h2>
                 </div>
-                <p className={`text-label-md leading-relaxed ${submission?.status === 'graded' ? 'text-ink-primary' : 'text-primary-800'}`}>
+                <p className={`text-label-md leading-relaxed ${(submission?.status === 'graded' || report) ? 'text-ink-primary' : 'text-primary-800'}`}>
                   {report.feedback_summary}
                 </p>
                 {report.generated_at && (

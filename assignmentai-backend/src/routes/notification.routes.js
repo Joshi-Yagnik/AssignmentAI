@@ -76,4 +76,24 @@ router.put('/read-all', requireAuth, async (req, res) => {
   }
 });
 
+// DELETE a single notification
+router.delete('/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const { error } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId); // ensure ownership
+
+    if (error) throw error;
+    res.json({ message: 'Notification deleted' });
+  } catch (err) {
+    console.error('[Notification DELETE]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

@@ -121,28 +121,45 @@ router.get('/submission/:submissionId/status', requireAuth, async (req, res) => 
       return res.status(404).json({ status: 'not_found' });
     }
 
-    // Try to find a matching BullMQ job by looking at recent jobs
-    const waiting = await gradingQueue.getWaiting();
-    const active = await gradingQueue.getActive();
-    const failed = await gradingQueue.getFailed();
+    // Try to find a matching BullMQ job by looking at recent jobs.
+    // If Redis is unavailable, fall back gracefully to the submission status in DB.
+    if (gradingQueue) {
+      try {
+        const waiting = await gradingQueue.getWaiting();
+        const active  = await gradingQueue.getActive();
+        const failed  = await gradingQueue.getFailed();
 
-    const allJobs = [...waiting, ...active, ...failed];
-    const matchingJob = allJobs.find(j => j.data?.submissionId === submissionId);
+        const allJobs     = [...waiting, ...active, ...failed];
+        const matchingJob = allJobs.find(j => j.data?.submissionId === submissionId);
 
-    if (matchingJob) {
-      const state = await matchingJob.getState();
-      const progress = matchingJob.progress || 0;
+        if (matchingJob) {
+          const state    = await matchingJob.getState();
+          const progress = matchingJob.progress || 0;
 
-      if (state === 'failed') {
-        return res.json({ status: 'failed', progress: 0, error: matchingJob.failedReason });
+          if (state === 'failed') {
+            return res.json({ status: 'failed', progress: 0, error: matchingJob.failedReason });
+          }
+          return res.json({ status: state, progress });
+        }
+      } catch (queueErr) {
+        // Redis not reachable — log and fall through to DB-based status below
+        console.warn('[Report /status] Queue unavailable, falling back to DB status:', queueErr.message);
       }
-      return res.json({ status: state, progress });
     }
 
-    // No job found but submission is submitted — still processing or job completed
+    // No job found (or queue unavailable) — derive status from submission record OR report
+    const { data: aiReport } = await supabase
+      .from('ai_reports')
+      .select('id')
+      .eq('submission_id', submissionId)
+      .single();
+
+    const isGraded = submission.status === 'graded' || !!aiReport;
+
     return res.json({
-      status: submission.status === 'graded' ? 'completed' : 'processing',
-      progress: submission.status === 'graded' ? 100 : 50,
+      status:   isGraded ? 'completed' : 'processing',
+      progress: isGraded ? 100 : 50,
+      reportId: aiReport ? aiReport.id : null
     });
   } catch (err) {
     console.error(err);

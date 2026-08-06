@@ -33,7 +33,8 @@ function StatCard({ icon: Icon, label, value, sub, color }) {
 }
 
 function getEffectiveStatus(assignment) {
-  if (assignment.submission?.status === 'graded')    return 'graded';
+  const isGraded = assignment.submission?.status === 'graded' || (assignment.submission?.ai_reports && assignment.submission.ai_reports.length > 0);
+  if (isGraded)    return 'graded';
   if (assignment.submission?.status === 'submitted') return 'submitted';
   const now = new Date();
   if (new Date(assignment.deadline) < now)           return 'overdue';
@@ -132,8 +133,8 @@ export default function StudentDashboard() {
     submitted: assignments.filter(a => a.effectiveStatus === 'submitted').length,
     pending:   assignments.filter(a => a.effectiveStatus === 'pending').length,
     graded:    assignments.filter(a => a.effectiveStatus === 'graded').length,
-    avgGrade:  Math.round(assignments.filter(a => a.submission?.ai_reports?.[0]?.final_score).reduce((s, a) => s + (a.submission?.ai_reports?.[0]?.final_score || 0), 0)
-               / (assignments.filter(a => a.submission?.ai_reports?.[0]?.final_score).length || 1)) || 0,
+    avgGrade:  Math.round(assignments.filter(a => a.submission?.ai_reports?.final_score).reduce((s, a) => s + (a.submission?.ai_reports?.final_score || 0), 0)
+               / (assignments.filter(a => a.submission?.ai_reports?.final_score).length || 1)) || 0,
   };
 
   const columns = [
@@ -157,7 +158,7 @@ export default function StudentDashboard() {
     },
     { key: 'aiGrade',  label: 'AI Grade', width: '100px',
       render: (v, row) => {
-        const score = row.submission?.ai_reports?.[0]?.final_score;
+        const score = row.submission?.ai_reports?.final_score;
         return score != null
           ? <span className="font-semibold text-primary-700">{score}/100</span>
           : <span className="text-ink-muted">—</span>

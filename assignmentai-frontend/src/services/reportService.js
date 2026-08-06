@@ -1,5 +1,5 @@
 // ── Report Service ────────────────────────────────────────────────────────────
-import api from './api';
+import api, { apiQuick } from './api';
 
 /** Get full AI grading report for a submission (includes per-question breakdown) */
 export async function getAIReport(submissionId) {
@@ -9,10 +9,11 @@ export async function getAIReport(submissionId) {
 
 /**
  * Poll the processing status of a grading job.
+ * Uses apiQuick (10 s timeout) so a slow poll doesn't block the UI.
  * Returns { status: 'waiting'|'active'|'processing'|'completed'|'failed', progress: 0-100 }
  */
 export async function getReportStatus(submissionId) {
-  const { data } = await api.get(`/reports/submission/${submissionId}/status`);
+  const { data } = await apiQuick.get(`/reports/submission/${submissionId}/status`);
   return data;
 }
 

@@ -8,3 +8,6 @@ export const markAsRead = (id) =>
 
 export const markAllAsRead = () => 
   api.put('/notifications/read-all').then(res => res.data);
+
+export const deleteNotification = (id) =>
+  api.delete(`/notifications/${id}`).then(res => res.data);
