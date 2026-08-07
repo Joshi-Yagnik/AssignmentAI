@@ -66,12 +66,18 @@ export default function AdminVivaPage() {
                 ) : sessions.length === 0 ? (
                   <tr><td colSpan="4" className="p-8 text-center text-ink-muted">No sessions found in the system.</td></tr>
                 ) : sessions.map(s => {
-                  const meta = JSON.parse(s.transcript || '{}');
+                  let meta = {};
+                  if (typeof s.transcript === 'object' && s.transcript !== null) {
+                    meta = s.transcript;
+                  } else if (typeof s.transcript === 'string') {
+                    try { meta = JSON.parse(s.transcript); } catch (_) {}
+                  }
+                  const sessionTitle = s.topic || s.subject || meta.title || 'Untitled Session';
                   return (
                     <tr key={s.id} className="border-b border-border hover:bg-surface-high/50 transition-colors">
                       <td className="p-4">
-                        <p className="font-semibold text-ink-primary">{meta.title || 'Untitled Session'}</p>
-                        <p className="text-xs text-ink-muted mt-1">{new Date(s.scheduled_time).toLocaleString()}</p>
+                        <p className="font-semibold text-ink-primary">{sessionTitle}</p>
+                        <p className="text-xs text-ink-muted mt-1">{s.scheduled_time ? new Date(s.scheduled_time).toLocaleString() : '—'}</p>
                       </td>
                       <td className="p-4">
                         <p className="text-sm font-medium">{s.users ? `${s.users.first_name} ${s.users.last_name}` : 'Unknown'}</p>

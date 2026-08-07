@@ -171,7 +171,36 @@ function splitName(fullName = '') {
   };
 }
 
-router.get('/users', ...adminOnly, async (req, res) => {
+router.get('/users/metadata/classes', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('class_name, lab_batch')
+      .not('class_name', 'is', null);
+
+    if (error) throw error;
+
+    const classesMap = {};
+    (data || []).forEach(row => {
+      const c = row.class_name;
+      const b = row.lab_batch;
+      if (!c) return;
+      if (!classesMap[c]) classesMap[c] = new Set();
+      if (b) classesMap[c].add(b);
+    });
+
+    const result = Object.keys(classesMap).map(c => ({
+      class_name: c,
+      lab_batches: Array.from(classesMap[c]).sort()
+    })).sort((a, b) => a.class_name.localeCompare(b.class_name));
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/users', requireAuth, async (req, res) => {
   try {
     let query = supabase
       .from('users')

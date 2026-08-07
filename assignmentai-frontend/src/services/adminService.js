@@ -24,7 +24,7 @@ export const createUser     = (body)     => api.post('/admin/users', body).then(
 export const updateUser     = (id, body) => api.put(`/admin/users/${id}`, body).then(r => r.data);
 export const deleteUser     = (id)       => api.delete(`/admin/users/${id}`).then(r => r.data);
 export const bulkUploadUsers = (body)    => api.post('/admin/users/bulk', body).then(r => r.data);
-export const getMetadataClasses = ()     => api.get('/admin/users/metadata/classes').then(r => r.data);
+export const getMetadataClasses = ()     => api.get('/users/metadata/classes').then(r => r.data);
 
 // ── AI ENGINE CONFIG ────────────────────────────────────────────────────────
 export const getAiConfig    = ()         => api.get('/admin/config/ai').then(r => r.data);
