@@ -27,6 +27,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: check-ci
 
+    # Provide org/project IDs to all Vercel CLI commands
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
     defaults:
       run:
         working-directory: assignmentai-frontend
@@ -48,19 +53,9 @@ jobs:
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
 
-      # Manually create .vercel/project.json to link the CLI to the correct project.
-      # This replaces `vercel pull` and avoids the "Could not retrieve Project Settings" error.
-      # VERCEL_ORG_ID  = Team ID  (Vercel → Team Settings → General → Team ID)
-      # VERCEL_PROJECT_ID = Project ID (Vercel → Project → Settings → General → Project ID)
-      - name: Link Vercel project
-        run: |
-          mkdir -p .vercel
-          printf '{"orgId":"%s","projectId":"%s"}' \
-            "${{ secrets.VERCEL_ORG_ID }}" \
-            "${{ secrets.VERCEL_PROJECT_ID }}" \
-            > .vercel/project.json
-          echo "Vercel project linked via .vercel/project.json"
-          cat .vercel/project.json
+      # Pull project settings from Vercel (links to the correct project).
+      - name: Pull Vercel environment & settings
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
         working-directory: ${{ github.workspace }}
 
       # Build using Vercel's builder (respects vercel.json at repo root)
@@ -96,7 +91,7 @@ jobs:
             --request POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
           echo "Response body:"
           cat response.json
-          if [ "$HTTP_CODE" -ne 200 ] && [ "$HTTP_CODE" -ne 201 ]; then
+          if [ "$HTTP_CODE" -ne 200 ] && [ "$HTTP_CODE" -ne 201 ] && [ "$HTTP_CODE" -ne 202 ]; then
             echo "Render deploy hook returned HTTP $HTTP_CODE"
             exit 1
           fi
