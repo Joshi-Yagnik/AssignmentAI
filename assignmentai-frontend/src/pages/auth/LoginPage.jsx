@@ -325,10 +325,10 @@ function SignupView({ onBack }) {
       setSuccess(true);
       toast({ type: 'success', title: 'Account created!', message: `Welcome to AssignmentAI, ${name.split(' ')[0]}!` });
       // Auto-login: sign in with the same credentials after account creation
-      const roleHome = { Student: '/student', Teacher: '/teacher', Admin: '/admin' };
+      const roleHome = { Student: '/student', Teacher: '/teacher', Admin: '/admin', Ta: '/ta', TA: '/ta' };
       const user = await login(email, pass, role);
-      const actualRole = user.role.charAt(0).toUpperCase() + user.role.slice(1);
-      navigate(roleHome[actualRole] ?? '/login');
+      const actualRole = user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase();
+      navigate(roleHome[actualRole] ?? roleHome[user.role.toUpperCase()] ?? '/login');
     } catch (err) {
       const msg = getErrorMessage(err);
       setSuccess(false);
