@@ -47,7 +47,7 @@ export default function TADashboard() {
 
       <main className="p-4 md:p-6 max-w-5xl mx-auto flex flex-col gap-6">
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-3 md:gap-4">
           <div className="card flex items-center gap-3 py-3">
             <div className="w-10 h-10 rounded-xl bg-info/10 flex items-center justify-center shrink-0">
               <Calendar className="w-5 h-5 text-info" />
@@ -79,16 +79,16 @@ export default function TADashboard() {
 
         {/* Live sessions alert */}
         {live.length > 0 && (
-          <div className="card border-l-4 border-l-success flex items-center justify-between gap-4 py-3">
+          <div className="card border-l-4 border-l-success flex flex-col sm:flex-row sm:items-center justify-between gap-3 py-3">
             <div className="flex items-center gap-3">
-              <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-success animate-pulse shrink-0" />
               <div>
                 <p className="font-semibold text-ink-primary">{live[0].title} — LIVE NOW</p>
                 <p className="text-label-sm text-ink-muted">{live[0].lab_batch || live[0].class_name}</p>
               </div>
             </div>
             <button
-              className="btn-primary btn-sm"
+              className="btn-primary btn-sm w-full sm:w-auto justify-center"
               onClick={() => navigate(`/ta/monitor/${live[0].id}`)}
             >
               Enter Monitor
@@ -120,18 +120,18 @@ export default function TADashboard() {
                 const scheduledDate = s.scheduled_at ? new Date(s.scheduled_at) : null;
                 const isLive = s.status === 'live';
                 return (
-                  <div key={s.id} className="p-4 flex items-start gap-4 hover:bg-surface-high/50 transition-colors">
+                  <div key={s.id} className="p-4 flex items-start gap-3 hover:bg-surface-high/50 transition-colors">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isLive ? 'bg-success/10' : 'bg-primary/10'}`}>
                       <Video className={`w-5 h-5 ${isLive ? 'text-success' : 'text-primary'}`} />
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold text-ink-primary">{s.title}</p>
-                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLES[s.status] || ''}`}>
+                        <p className="font-semibold text-ink-primary truncate">{s.title}</p>
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${STATUS_STYLES[s.status] || ''}`}>
                           {s.status.toUpperCase()}
                         </span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-3 mt-1 text-label-sm text-ink-muted">
+                      <div className="flex flex-wrap items-center gap-2 mt-1 text-label-sm text-ink-muted">
                         {scheduledDate && (
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3.5 h-3.5" />
@@ -150,18 +150,18 @@ export default function TADashboard() {
                         )}
                       </div>
                       <p className="text-label-sm text-ink-secondary mt-0.5">
-                        Professor: {s.users?.first_name} {s.users?.last_name}
+                        Prof: {s.users?.first_name} {s.users?.last_name}
                       </p>
+                      {(isLive || s.status === 'scheduled') && (
+                        <button
+                          className={`mt-2 ${isLive ? 'btn-primary btn-sm' : 'btn btn-secondary btn-sm'}`}
+                          onClick={() => navigate(`/ta/monitor/${s.id}`)}
+                          disabled={s.status === 'scheduled'}
+                        >
+                          {isLive ? 'Monitor' : 'Pending'}
+                        </button>
+                      )}
                     </div>
-                    {(isLive || s.status === 'scheduled') && (
-                      <button
-                        className={isLive ? 'btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
-                        onClick={() => navigate(`/ta/monitor/${s.id}`)}
-                        disabled={s.status === 'scheduled'}
-                      >
-                        {isLive ? 'Monitor' : 'Pending'}
-                      </button>
-                    )}
                   </div>
                 );
               })}

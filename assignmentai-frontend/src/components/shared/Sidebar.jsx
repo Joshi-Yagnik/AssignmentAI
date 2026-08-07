@@ -31,15 +31,15 @@ const NAV = {
     { label: 'My Profile',     to: '/student/profile',    icon: UserCircle      },
   ],
   teacher: [
-    { label: 'Overview',       to: '/teacher',              icon: LayoutDashboard },
-    { label: 'Assignments',    to: '/teacher/assignments',  icon: ClipboardList   },
-    { label: 'AI Grading Queue', to: '/teacher/grading',   icon: Bot             },
-    { label: 'Live Viva',      to: '/teacher/viva',         icon: Video           },
-    { label: 'Students',       to: '/teacher/students',     icon: Users           },
-    { label: 'Student Requests', to: '/teacher/requests',  icon: Inbox           },
-    { label: 'Study Materials',to: '/teacher/materials',  icon: FileText        },
-    { label: 'Analytics',      to: '/teacher/analytics',    icon: BarChart3       },
-    { label: 'My Profile',     to: '/teacher/profile',      icon: UserCircle      },
+    { label: 'Overview',         to: '/teacher',              icon: LayoutDashboard },
+    { label: 'Assignments',      to: '/teacher/assignments',  icon: ClipboardList   },
+    { label: 'AI Grading Queue', to: '/teacher/grading',      icon: Bot             },
+    { label: 'Live Viva',        to: '/teacher/viva',         icon: Video           },
+    { label: 'Students',         to: '/teacher/students',     icon: Users           },
+    { label: 'Student Requests', to: '/teacher/requests',     icon: Inbox           },
+    { label: 'Study Materials',  to: '/teacher/materials',    icon: FileText        },
+    { label: 'Analytics',        to: '/teacher/analytics',    icon: BarChart3       },
+    { label: 'My Profile',       to: '/teacher/profile',      icon: UserCircle      },
   ],
   admin: [
     { label: 'System Overview', to: '/admin',              icon: LayoutDashboard },
@@ -73,7 +73,7 @@ export default function Sidebar({ user }) {
 
   const items = NAV[user.role] ?? [];
 
-  // Listen for mobile menu toggle
+  // Listen for mobile menu toggle from TopBar hamburger
   useEffect(() => {
     const handleOpen = () => setIsOpen(true);
     window.addEventListener('aaai:open-sidebar', handleOpen);
@@ -95,7 +95,7 @@ export default function Sidebar({ user }) {
       {/* Mobile backdrop */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-ink-primary/30 backdrop-blur-sm z-40 md:hidden animate-fade-in"
+          className="fixed inset-0 bg-ink-primary/40 backdrop-blur-sm z-40 md:hidden animate-fade-in"
           onClick={() => setIsOpen(false)}
           aria-hidden="true"
         />
@@ -103,13 +103,13 @@ export default function Sidebar({ user }) {
 
       {/* Sidebar container */}
       <aside
-        className={`fixed top-0 left-0 h-screen w-60 bg-white border-r border-border
+        className={`fixed top-0 left-0 h-screen w-64 md:w-60 bg-white border-r border-border
                     flex flex-col z-50 shadow-card transition-transform duration-300
                     ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}
         aria-label="Main Navigation"
       >
         {/* Header / Logo */}
-        <div className="px-5 py-5 border-b border-border flex items-center justify-between">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-indigo-gradient flex items-center justify-center">
               <Bot className="w-5 h-5 text-white" />
@@ -118,9 +118,9 @@ export default function Sidebar({ user }) {
               Assignment<span className="text-primary">AI</span>
             </span>
           </div>
-          {/* Mobile close button */}
+          {/* Mobile close button — 44×44 touch target */}
           <button
-            className="md:hidden btn-icon p-1"
+            className="md:hidden btn-icon"
             onClick={() => setIsOpen(false)}
             aria-label="Close sidebar"
           >
@@ -128,11 +128,11 @@ export default function Sidebar({ user }) {
           </button>
         </div>
 
-        {/* Nav Links */}
-        <nav className="flex-1 overflow-y-auto scrollbar-thin px-3 py-4 flex flex-col gap-0.5">
+        {/* Nav Links — scrollable, each item is min 44px tall */}
+        <nav className="flex-1 overflow-y-auto scrollbar-thin px-3 py-3 flex flex-col gap-0.5">
           {items.map(({ label, to, icon: Icon }) => (
             <NavLink
-              key={to}
+              key={`${to}-${label}`}
               to={to}
               end={to === `/${user.role}` || to === '/admin'}
               className={({ isActive }) =>
@@ -148,7 +148,7 @@ export default function Sidebar({ user }) {
 
         {/* Notification quick-link */}
         <div className="px-3 pb-2">
-          <button 
+          <button
             className="nav-item w-full flex items-center justify-between"
             onClick={() => window.dispatchEvent(new CustomEvent('aaai:toggle-notifications'))}
           >

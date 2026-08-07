@@ -193,7 +193,7 @@ export default function StudentDashboard() {
         showSearch
       />
 
-      <main className="p-4 md:p-6 flex flex-col gap-6">
+      <main className="p-4 md:p-6 flex flex-col gap-4 md:gap-6">
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard icon={BookOpen}    label="Total Assignments" value={stats.total}    color="bg-info"    />
@@ -284,6 +284,8 @@ export default function StudentDashboard() {
               searchable
               searchKeys={['title', 'courseLabel']}
               loading={loading}
+              mobilePrimaryKey="title"
+              mobileSubKey="courseLabel"
             />
           </div>
         </div>

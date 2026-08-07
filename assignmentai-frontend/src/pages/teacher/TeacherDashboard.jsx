@@ -234,18 +234,18 @@ export default function TeacherDashboard() {
         }
       />
 
-      <main className="p-6 flex flex-col gap-6">
+      <main className="p-4 md:p-6 flex flex-col gap-5 md:gap-6">
         {/* Stats */}
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 md:gap-4">
           <StatCard icon={ClipboardList} label="Active Assignments"  value={stats.activeAssignments}    color="bg-primary"           />
           <StatCard icon={Clock}         label="Pending Reviews"     value={stats.pendingReviews}   sub="Needs attention" color="bg-warning" attention={stats.pendingReviews > 0} />
           <StatCard icon={Video}         label="Live Viva Today"     value={stats.liveVivas}    color="bg-danger"            />
           <StatCard icon={Bot}           label="AI Graded Today"     value={stats.aiGraded}   color="bg-success"           />
         </div>
 
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 md:gap-6">
           {/* Courses */}
-          <div className="col-span-2 flex flex-col gap-4">
+          <div className="lg:col-span-2 flex flex-col gap-4">
             <h2 className="text-headline-sm">Course Summary</h2>
             <div className="grid grid-cols-1 gap-3">
               {courses.length === 0 ? (
@@ -313,7 +313,7 @@ export default function TeacherDashboard() {
 
         {/* Pending submissions table */}
         <div className="card p-0 overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-border">
             <h2 className="text-headline-sm">Pending Submissions</h2>
             <span className="text-label-sm text-ink-muted">{pendingSubmissions.length} awaiting review</span>
           </div>

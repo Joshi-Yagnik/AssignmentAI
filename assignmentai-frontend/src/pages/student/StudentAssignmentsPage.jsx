@@ -140,7 +140,7 @@ export default function StudentAssignmentsPage() {
         subtitle="View and submit your assigned work"
       />
 
-      <main className="p-4 md:p-6 flex flex-col gap-6">
+      <main className="p-4 md:p-6 flex flex-col gap-4 md:gap-6">
 
         {/* Stats row */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -157,7 +157,7 @@ export default function StudentAssignmentsPage() {
             <input className="input pl-9" placeholder="Search assignments…"
               value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <div className="flex items-center gap-1 bg-surface-low border border-border rounded-lg p-1 flex-wrap">
+          <div className="filter-pills">
             {[
               { key: 'all',       label: 'All' },
               { key: 'pending',   label: 'Pending' },
@@ -166,11 +166,7 @@ export default function StudentAssignmentsPage() {
               { key: 'overdue',   label: 'Overdue' },
             ].map(({ key, label }) => (
               <button key={key} onClick={() => setStatusFilter(key)}
-                className={`px-3 py-1.5 text-label-sm font-semibold rounded-md transition-all ${
-                  statusFilter === key
-                    ? 'bg-surface shadow-sm text-ink-primary'
-                    : 'text-ink-muted hover:text-ink-secondary'
-                }`}>
+                className={`filter-pill ${statusFilter === key ? 'active' : ''}`}>
                 {label}
                 <span className="ml-1.5 text-xs bg-surface-high text-ink-muted px-1.5 py-0.5 rounded-full">
                   {counts[key]}

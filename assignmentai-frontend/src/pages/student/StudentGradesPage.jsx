@@ -82,7 +82,7 @@ export default function StudentGradesPage() {
         subtitle="Track your academic progress and AI grading analytics."
       />
 
-      <main className="p-4 md:p-6 flex flex-col gap-6 max-w-6xl mx-auto w-full">
+      <main className="p-4 md:p-6 flex flex-col gap-4 md:gap-6 max-w-6xl mx-auto w-full">
         
         {/* Top Stats Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -141,7 +141,44 @@ export default function StudentGradesPage() {
                 <p className="text-label-sm text-ink-muted mt-1">Your scores will appear here once teachers publish them.</p>
               </div>
             ) : (
-              <div className="card p-0 overflow-hidden">
+              <>
+              <div className="md:hidden flex flex-col gap-3">
+
+                {gradesList.map((item) => {
+                  const percentage = Math.round((item.score / item.max) * 100);
+                  const isHigh = percentage >= 80;
+                  return (
+                    <div key={`m-${item.type}-${item.id}`} className="mobile-card-row">
+                      <div className="mobile-card-row-header">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-ink-primary text-sm leading-snug truncate">{item.title}</p>
+                          <p className="text-xs text-ink-muted uppercase tracking-wide mt-0.5">{item.type}</p>
+                        </div>
+                        <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-bold shrink-0 ${
+                          isHigh ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning-text'
+                        }`}>
+                          {item.score}/{item.max}
+                        </span>
+                      </div>
+                      <div className="mobile-card-row-field">
+                        <span className="mobile-card-row-label">Date</span>
+                        <span className="mobile-card-row-value">{item.date.toLocaleDateString()}</span>
+                      </div>
+                      <button
+                        className="btn btn-ghost btn-sm w-full justify-center mt-1"
+                        onClick={() => {
+                          if (item.type === 'assignment') navigate(`/student/ai-grading/${item.id}`);
+                          else navigate(`/student/viva/report/${item.id}`);
+                        }}
+                      >
+                        View Report <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Desktop: table */}
+              <div className="hidden md:block card p-0 overflow-hidden">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-surface-low border-b border-border text-label-sm text-ink-muted">
@@ -161,9 +198,7 @@ export default function StudentGradesPage() {
                             <p className="font-semibold text-ink-primary text-sm line-clamp-1">{item.title}</p>
                             <p className="text-xs text-ink-muted uppercase tracking-wide mt-0.5">{item.type}</p>
                           </td>
-                          <td className="py-3 px-4 text-sm text-ink-secondary">
-                            {item.date.toLocaleDateString()}
-                          </td>
+                          <td className="py-3 px-4 text-sm text-ink-secondary">{item.date.toLocaleDateString()}</td>
                           <td className="py-3 px-4 text-right">
                             <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
                               isHigh ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning-text'
@@ -172,7 +207,7 @@ export default function StudentGradesPage() {
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <button 
+                            <button
                               className="btn btn-ghost btn-sm text-primary"
                               onClick={() => {
                                 if (item.type === 'assignment') navigate(`/student/ai-grading/${item.id}`);
@@ -188,6 +223,7 @@ export default function StudentGradesPage() {
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
 
