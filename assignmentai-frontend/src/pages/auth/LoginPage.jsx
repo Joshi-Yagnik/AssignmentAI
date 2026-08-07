@@ -14,6 +14,7 @@ import { signup as apiSignup, forgotPassword as apiForgotPassword } from '../../
 const ROLES = [
   { id: 'Student', label: 'Student',  Icon: GraduationCap, home: '/student' },
   { id: 'Teacher', label: 'Teacher',  Icon: Briefcase,      home: '/teacher' },
+  { id: 'TA',      label: 'TA',       Icon: User,           home: '/ta'      },
   { id: 'Admin',   label: 'Admin',    Icon: ShieldCheck,    home: '/admin'   },
 ];
 
@@ -104,7 +105,7 @@ function LoginView({ onForgot, onSignup }) {
   const [loading,  setLoading] = useState(false);
   const [fieldErr, setErr]     = useState('');
 
-  const roleHome = { Student: '/student', Teacher: '/teacher', Admin: '/admin' };
+  const roleHome = { Student: '/student', Teacher: '/teacher', Admin: '/admin', Ta: '/ta', TA: '/ta' };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -138,7 +139,7 @@ function LoginView({ onForgot, onSignup }) {
       </div>
 
       {/* Role selector */}
-      <div className="grid grid-cols-3 gap-2 mb-7 p-1 bg-slate-100 rounded-2xl">
+      <div className="grid grid-cols-4 gap-2 mb-7 p-1 bg-slate-100 rounded-2xl">
         {ROLES.map(({ id, label, Icon }) => (
           <button
             key={id}

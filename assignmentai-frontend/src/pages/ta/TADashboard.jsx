@@ -24,8 +24,9 @@ export default function TADashboard() {
       setLoading(true);
       const { data } = await api.get('/viva/ta/sessions');
       setSessions(data || []);
-    } catch {
-      toast({ type: 'error', title: 'Failed to load assigned sessions' });
+    } catch (err) {
+      const msg = err.response?.data?.error || err.message || 'Unknown error';
+      toast({ type: 'error', title: `Failed to load sessions: ${msg}` });
     } finally {
       setLoading(false);
     }

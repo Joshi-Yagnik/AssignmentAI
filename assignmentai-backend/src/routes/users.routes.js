@@ -106,9 +106,9 @@ router.get('/metadata/classes', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// GET all users (teachers + students)
+// GET all users (teachers + students + TAs)
 // ─────────────────────────────────────────────────────────────
-router.get('/', ...adminOnly, async (req, res) => {
+router.get('/', requireAuth, requireRole(['admin', 'teacher']), async (req, res) => {
   try {
     const { role } = req.query;
     let query = supabase
@@ -156,8 +156,8 @@ router.post('/', ...adminOnly, async (req, res) => {
     if (!fName || !email || !password || !role) {
       return res.status(400).json({ error: 'name, email, password, and role are required' });
     }
-    if (!['teacher', 'student'].includes(role)) {
-      return res.status(400).json({ error: 'Role must be teacher or student' });
+    if (!['teacher', 'student', 'ta'].includes(role)) {
+      return res.status(400).json({ error: 'Role must be teacher, student, or ta' });
     }
 
     const password_hash = await bcrypt.hash(password, 10);

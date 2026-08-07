@@ -32,7 +32,7 @@ Return ONLY a JSON object with two keys:
           { role: 'system', content: 'You are a helpful academic AI assistant that outputs only valid JSON.' },
           { role: 'user', content: prompt }
         ],
-        model: 'grok-beta',
+        model: 'grok-4.5',
         temperature: 0.1
       },
       {
@@ -101,7 +101,7 @@ Return ONLY a JSON object with these exact keys:
           { role: 'system', content: 'You are an AI examiner that outputs only valid JSON.' },
           { role: 'user', content: prompt }
         ],
-        model: 'grok-2-latest',
+        model: 'grok-4.5',
         temperature: 0.5
       },
       {
@@ -176,7 +176,7 @@ Return ONLY valid JSON with these exact keys.
           { role: 'system', content: 'You are an AI examiner that outputs only valid JSON.' },
           { role: 'user', content: prompt }
         ],
-        model: 'grok-2-latest',
+        model: 'grok-4.5',
         temperature: 0.2
       },
       {
