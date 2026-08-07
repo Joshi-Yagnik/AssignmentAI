@@ -7,6 +7,105 @@ const bcrypt = require('bcrypt');
 const adminOnly = [requireAuth, requireRole(['admin'])];
 
 // ─────────────────────────────────────────────────────────────
+// GET /profile — Get current user's profile
+// ─────────────────────────────────────────────────────────────
+router.get('/profile', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email, role, department_id, enrollment_number, phone, current_semester, gender, class_name, lab_batch, batch_year, created_at, departments(name, code)')
+      .eq('id', req.user.id)
+      .single();
+
+    if (error) throw error;
+    res.json({
+      ...data,
+      name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.email,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// PUT /profile — Update current user's profile
+// ─────────────────────────────────────────────────────────────
+router.put('/profile', requireAuth, async (req, res) => {
+  try {
+    const updates = { ...req.body };
+    
+    // Prevent changing secure fields
+    delete updates.id;
+    delete updates.role;
+    delete updates.created_at;
+    delete updates.email;
+    delete updates.password_hash;
+    
+    // Accept name split
+    if (updates.name && !updates.first_name) {
+      const parts = updates.name.trim().split(' ');
+      updates.first_name = parts[0];
+      updates.last_name = parts.slice(1).join(' ');
+      delete updates.name;
+    }
+
+    if (req.body.password) {
+      updates.password_hash = await bcrypt.hash(req.body.password, 10);
+      delete updates.password; // Don't try to insert plain password
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', req.user.id)
+      .select('id, first_name, last_name, email, role, department_id, enrollment_number, phone, current_semester, gender, class_name, lab_batch, batch_year, created_at, departments(name, code)')
+      .single();
+
+    if (error) throw error;
+
+    res.json({
+      ...data,
+      name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.email,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /metadata/classes — Get distinct classes and lab batches
+// ─────────────────────────────────────────────────────────────
+router.get('/metadata/classes', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('class_name, lab_batch')
+      .not('class_name', 'is', null);
+
+    if (error) throw error;
+
+    const classesMap = {}; // { "7IT-A": ["7IT-A-1", "7IT-A-2"] }
+    
+    (data || []).forEach(row => {
+      const c = row.class_name;
+      const b = row.lab_batch;
+      if (!c) return;
+      if (!classesMap[c]) classesMap[c] = new Set();
+      if (b) classesMap[c].add(b);
+    });
+
+    const result = Object.keys(classesMap).map(c => ({
+      class_name: c,
+      lab_batches: Array.from(classesMap[c]).sort()
+    })).sort((a, b) => a.class_name.localeCompare(b.class_name));
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 // GET all users (teachers + students)
 // ─────────────────────────────────────────────────────────────
 router.get('/', ...adminOnly, async (req, res) => {
@@ -14,7 +113,7 @@ router.get('/', ...adminOnly, async (req, res) => {
     const { role } = req.query;
     let query = supabase
       .from('users')
-      .select('id, first_name, last_name, email, role, department_id, created_at, departments(name, code)')
+      .select('id, first_name, last_name, email, role, department_id, class_name, lab_batch, created_at, departments(name, code)')
       .order('created_at', { ascending: false });
 
     if (role && role !== 'all') {
@@ -43,7 +142,7 @@ router.get('/', ...adminOnly, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/', ...adminOnly, async (req, res) => {
   try {
-    const { name, first_name, last_name, email, password, role, department_id } = req.body;
+    const { name, first_name, last_name, email, password, role, department_id, class_name, lab_batch } = req.body;
 
     // Accept either `name` (split on first space) or `first_name`/`last_name`
     let fName = first_name || '';
@@ -65,8 +164,17 @@ router.post('/', ...adminOnly, async (req, res) => {
 
     const { data, error } = await supabase
       .from('users')
-      .insert([{ first_name: fName, last_name: lName, email, password_hash, role, department_id: department_id || null }])
-      .select('id, first_name, last_name, email, role, department_id, created_at, departments(name, code)')
+      .insert([{ 
+        first_name: fName, 
+        last_name: lName, 
+        email, 
+        password_hash, 
+        role, 
+        department_id: department_id || null,
+        class_name: class_name || null,
+        lab_batch: lab_batch || null
+      }])
+      .select('id, first_name, last_name, email, role, department_id, class_name, lab_batch, created_at, departments(name, code)')
       .single();
 
     if (error) throw error;
@@ -85,7 +193,7 @@ router.post('/', ...adminOnly, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.put('/:id', ...adminOnly, async (req, res) => {
   try {
-    const { name, first_name, last_name, email, password, role, department_id } = req.body;
+    const { name, first_name, last_name, email, password, role, department_id, class_name, lab_batch } = req.body;
 
     // Accept either `name` or `first_name`/`last_name`
     let fName = first_name || '';
@@ -102,6 +210,8 @@ router.put('/:id', ...adminOnly, async (req, res) => {
       email,
       role,
       department_id: department_id || null,
+      class_name: class_name || null,
+      lab_batch: lab_batch || null,
     };
 
     if (password) {
@@ -112,7 +222,7 @@ router.put('/:id', ...adminOnly, async (req, res) => {
       .from('users')
       .update(updates)
       .eq('id', req.params.id)
-      .select('id, first_name, last_name, email, role, department_id, created_at, departments(name, code)')
+      .select('id, first_name, last_name, email, role, department_id, class_name, lab_batch, created_at, departments(name, code)')
       .single();
 
     if (error) throw error;
@@ -186,7 +296,7 @@ router.post('/bulk', ...adminOnly, async (req, res) => {
 
         // ── Resolve department_code → department_id ───────────────────────
         let department_id = null;
-        const inputVal = (user.department_code || user.dept_code || user.department_id || '').trim();
+        const inputVal = (user.departmentCode || user.department_code || user.dept_code || user.department_id || '').trim();
 
         if (inputVal) {
           // Check if it's a valid UUID
@@ -195,19 +305,26 @@ router.post('/bulk', ...adminOnly, async (req, res) => {
           if (isUUID) {
             department_id = inputVal;
           } else {
-            // Treat as department code, even if they filled out the legacy 'department_id' column
+            // Treat as department code, auto-create if missing
             const deptCode = inputVal.toUpperCase();
             if (!deptByCode[deptCode]) {
-              failed.push({ email: user.email, error: `Department code '${deptCode}' not found. Check the code or create the department first.` });
-              continue;
+              const { data: newDept, error: deptError } = await supabase
+                .from('departments')
+                .insert([{ name: deptCode, code: deptCode }])
+                .select('id, code')
+                .single();
+                
+              if (deptError) {
+                failed.push({ email: user.email, error: `Failed to auto-create department '${deptCode}': ${deptError.message}` });
+                continue;
+              }
+              deptByCode[deptCode] = newDept.id;
             }
             department_id = deptByCode[deptCode];
           }
         }
 
-        const { data, error } = await supabase
-          .from('users')
-          .insert([{
+        const userData = {
             first_name: fName,
             last_name:  lName,
             email:      user.email,
@@ -221,9 +338,34 @@ router.post('/bulk', ...adminOnly, async (req, res) => {
             class_name: user['Class '] || user.class_name || null,
             lab_batch: user['Lab- Batch '] || user.lab_batch || null,
             batch_year: user.Batch || user.batch_year || null
-          }])
-          .select('id, first_name, last_name, email, role')
-          .single();
+        };
+
+        // Check if user already exists
+        const { data: existingUser } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', user.email)
+          .maybeSingle();
+
+        let data, error;
+        if (existingUser) {
+          const result = await supabase
+            .from('users')
+            .update(userData)
+            .eq('id', existingUser.id)
+            .select('id, first_name, last_name, email, role')
+            .single();
+          data = result.data;
+          error = result.error;
+        } else {
+          const result = await supabase
+            .from('users')
+            .insert([userData])
+            .select('id, first_name, last_name, email, role')
+            .single();
+          data = result.data;
+          error = result.error;
+        }
 
         if (error) {
           failed.push({ email: user.email, error: error.message });

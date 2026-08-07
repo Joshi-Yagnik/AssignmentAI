@@ -111,6 +111,43 @@ router.get('/teacher/students', requireAuth, requireRole(['teacher', 'admin']), 
     // Determine which teacher we're scoping to
     const teacherId = req.user.role === 'teacher' ? req.user.id : (req.query.teacher_id || null);
 
+    const studentMap = {};
+
+    // 1. Fetch Teacher's allocated students
+    if (teacherId) {
+      const { data: tData } = await supabase.from('users').select('class_name, lab_batch').eq('id', teacherId).single();
+      if (tData && tData.class_name) {
+        let q = supabase.from('users')
+          .select('id, first_name, last_name, email, class_name, lab_batch, enrollment_number')
+          .eq('role', 'student')
+          .eq('class_name', tData.class_name);
+        
+        if (tData.lab_batch) {
+          q = q.eq('lab_batch', tData.lab_batch);
+        }
+
+        const { data: allocStudents } = await q;
+        for (const u of (allocStudents || [])) {
+          studentMap[u.id] = {
+            id:              u.id,
+            first_name:      u.first_name || '',
+            last_name:       u.last_name  || '',
+            email:           u.email || '',
+            class_name:      u.class_name || '',
+            lab_batch:       u.lab_batch || '',
+            enrollment_number: u.enrollment_number || '',
+            submission_count: 0,
+            graded_count:    0,
+            total_score:     0,
+            avg_score:       null,
+            latest_submission: null,
+            assignments_submitted: [],
+          };
+        }
+      }
+    }
+
+    // 2. Fetch submissions for this teacher's assignments
     let submissionsQuery = supabase
       .from('submissions')
       .select(`
@@ -119,7 +156,7 @@ router.get('/teacher/students', requireAuth, requireRole(['teacher', 'admin']), 
         submitted_at,
         student_id,
         assignment_id,
-        users!submissions_student_id_fkey(id, first_name, last_name, email),
+        users!submissions_student_id_fkey(id, first_name, last_name, email, class_name, lab_batch, enrollment_number),
         assignments(id, title),
         ai_reports(ai_score, final_score)
       `)
@@ -127,15 +164,17 @@ router.get('/teacher/students', requireAuth, requireRole(['teacher', 'admin']), 
 
     if (teacherId) {
       const myAssignmentIds = await getTeacherAssignmentIds(teacherId);
-      if (myAssignmentIds.length === 0) return res.json([]);
+      if (myAssignmentIds.length === 0) {
+        // If teacher has no assignments, just return the allocated students (or empty)
+        return res.json(Object.values(studentMap));
+      }
       submissionsQuery = submissionsQuery.in('assignment_id', myAssignmentIds);
     }
 
     const { data: submissions, error } = await submissionsQuery;
     if (error) throw error;
 
-    // Aggregate by student
-    const studentMap = {};
+    // 3. Aggregate submissions by student
     for (const sub of (submissions || [])) {
       const u = sub.users;
       if (!u) continue;
@@ -146,6 +185,9 @@ router.get('/teacher/students', requireAuth, requireRole(['teacher', 'admin']), 
           first_name:      u.first_name || '',
           last_name:       u.last_name  || '',
           email:           u.email || '',
+          class_name:      u.class_name || '',
+          lab_batch:       u.lab_batch || '',
+          enrollment_number: u.enrollment_number || '',
           submission_count: 0,
           graded_count:    0,
           total_score:     0,

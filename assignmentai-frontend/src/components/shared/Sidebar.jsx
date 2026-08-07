@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, ClipboardList, Bot, Video,
-  Users, BarChart3, Settings, LogOut,
+  Users, BarChart3, Settings, LogOut, UserCircle,
   BookOpen, Inbox, ShieldCheck, Bell, X, FileText, Building2, Network, Library
 } from 'lucide-react';
 
@@ -28,6 +28,7 @@ const NAV = {
     { label: 'Grades',         to: '/student/grades',     icon: BarChart3       },
     { label: 'Study Materials',to: '/student/materials',  icon: FileText        },
     { label: 'My Requests',    to: '/student/requests',   icon: Inbox           },
+    { label: 'My Profile',     to: '/student/profile',    icon: UserCircle      },
   ],
   teacher: [
     { label: 'Overview',       to: '/teacher',              icon: LayoutDashboard },
@@ -38,6 +39,7 @@ const NAV = {
     { label: 'Student Requests', to: '/teacher/requests',  icon: Inbox           },
     { label: 'Study Materials',to: '/teacher/materials',  icon: FileText        },
     { label: 'Analytics',      to: '/teacher/analytics',    icon: BarChart3       },
+    { label: 'My Profile',     to: '/teacher/profile',      icon: UserCircle      },
   ],
   admin: [
     { label: 'System Overview', to: '/admin',              icon: LayoutDashboard },
@@ -51,11 +53,17 @@ const NAV = {
     { label: 'Reports',         to: '/admin/reports',      icon: BarChart3       },
     { label: 'Security',        to: '/admin/security',     icon: ShieldCheck     },
     { label: 'Settings',        to: '/admin/settings',     icon: Settings        },
+    { label: 'My Profile',      to: '/admin/profile',      icon: UserCircle      },
+  ],
+  ta: [
+    { label: 'Dashboard',       to: '/ta',                 icon: LayoutDashboard },
+    { label: 'My Sessions',     to: '/ta',                 icon: Video           },
+    { label: 'My Profile',      to: '/ta/profile',         icon: UserCircle      },
   ],
 };
 
-const ROLE_LABEL = { student: 'Student', teacher: 'Professor', admin: 'System Administrator' };
-const ROLE_COLOR = { student: 'text-ink-secondary', teacher: 'text-primary-700', admin: 'text-success' };
+const ROLE_LABEL = { student: 'Student', teacher: 'Professor', admin: 'System Administrator', ta: 'Teaching Assistant' };
+const ROLE_COLOR = { student: 'text-ink-secondary', teacher: 'text-primary-700', admin: 'text-success', ta: 'text-warning-text' };
 
 export default function Sidebar({ user }) {
   const navigate      = useNavigate();

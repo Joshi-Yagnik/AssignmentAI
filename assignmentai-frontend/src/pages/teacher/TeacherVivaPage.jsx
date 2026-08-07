@@ -3,15 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
 import api from '../../services/api';
-import { Video, Plus, Calendar, Clock, MonitorPlay, Users, X, Bot } from 'lucide-react';
+import { getMetadataClasses } from '../../services/adminService';
+import { Video, Plus, Calendar, Clock, MonitorPlay, Users, X, Bot, BarChart2 } from 'lucide-react';
 
 export default function TeacherVivaPage() {
   const toast = useToast();
   const navigate = useNavigate();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
-  
   const [assignments, setAssignments] = useState([]);
+  const [classMetadata, setClassMetadata] = useState([]);
+  const [taList, setTaList] = useState([]);
   
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -21,18 +23,30 @@ export default function TeacherVivaPage() {
     topic: '',
     difficulty: 'medium',
     total_questions: 5,
-    duration_minutes: 30
+    duration_minutes: 30,
+    scheduled_time: '',
+    ta_id: '',
+    class_name: '',
+    lab_batch: ''
   });
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const { data } = await api.get('/viva/sessions');
-      setSessions(data || []);
-
-      const { data: asmts } = await api.get('/assignments');
+      const [{ data: sessData }, { data: asmts }] = await Promise.all([
+        api.get('/viva/sessions'),
+        api.get('/assignments'),
+      ]);
+      setSessions(sessData || []);
       setAssignments(asmts || []);
+
+      // Load TAs and class metadata
+      const { data: taUsers } = await api.get('/admin/users?role=ta');
+      setTaList(taUsers || []);
+
+      const classes = await getMetadataClasses();
+      setClassMetadata(classes || []);
     } catch {
       toast({ type: 'error', title: 'Failed to load sessions' });
     } finally {
@@ -68,9 +82,13 @@ export default function TeacherVivaPage() {
         topic,
         difficulty: form.difficulty,
         total_questions: form.total_questions,
-        assignment_id: form.assignment_id || null
+        assignment_id: form.assignment_id || null,
+        scheduled_time: form.scheduled_time || null,
+        ta_id: form.ta_id || null,
+        class_name: form.class_name || null,
+        lab_batch: form.lab_batch || null
       });
-      toast({ type: 'success', title: 'AI Viva Session Created' });
+      toast({ type: 'success', title: 'Viva Session Created — Students will be notified!' });
       setShowModal(false);
       load();
     } catch {
@@ -149,12 +167,12 @@ export default function TeacherVivaPage() {
                     )}
                     {(isLive || s.status === 'scheduled') && (
                       <button onClick={() => navigate(`/teacher/viva/monitor/${s.id}`)} className="btn-secondary btn-sm flex-1 flex items-center justify-center gap-2">
-                        <MonitorPlay className="w-4 h-4" /> Monitor Students
+                        <MonitorPlay className="w-4 h-4" /> Monitor
                       </button>
                     )}
                     {s.status === 'completed' && (
                       <>
-                        <button onClick={() => navigate(`/teacher/viva/monitor/${s.id}`)} className="btn-secondary btn-sm flex-1 flex items-center justify-center gap-2">
+                        <button onClick={() => navigate(`/teacher/viva/monitor/${s.id}`)} className="btn-secondary btn-sm flex-1">
                           View Reports
                         </button>
                         <button onClick={() => handleRestart(s.id)} className="btn-outline-primary btn-sm flex-1">
@@ -162,6 +180,13 @@ export default function TeacherVivaPage() {
                         </button>
                       </>
                     )}
+                    <button
+                      onClick={() => navigate(`/teacher/viva/grading/${s.id}`)}
+                      className="btn btn-ghost btn-sm flex items-center gap-1 text-primary"
+                      title="Grading Queue (AI + TA)"
+                    >
+                      <BarChart2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               );
@@ -265,6 +290,66 @@ export default function TeacherVivaPage() {
                 />
               </div>
               
+              {/* ── TA & Scheduling ─────────────────────────────── */}
+              <div className="border border-border rounded-xl p-4 flex flex-col gap-4">
+                <p className="font-semibold text-ink-primary text-sm">TA Assignment & Scheduling</p>
+
+                <div>
+                  <label className="label">Assign TA (optional)</label>
+                  <select
+                    className="input"
+                    value={form.ta_id}
+                    onChange={e => setForm({...form, ta_id: e.target.value})}
+                  >
+                    <option value="">-- No TA --</option>
+                    {taList.map(ta => (
+                      <option key={ta.id} value={ta.id}>{ta.name || `${ta.first_name} ${ta.last_name}`} ({ta.email})</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-ink-muted mt-1">TA will monitor students anonymously during the live session.</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Class Name</label>
+                    <select
+                      className="input"
+                      value={form.class_name}
+                      onChange={e => setForm({...form, class_name: e.target.value, lab_batch: ''})}
+                    >
+                      <option value="">All Students</option>
+                      {classMetadata.map(c => (
+                        <option key={c.class_name} value={c.class_name}>{c.class_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Lab Batch</label>
+                    <select
+                      className="input"
+                      value={form.lab_batch}
+                      onChange={e => setForm({...form, lab_batch: e.target.value})}
+                    >
+                      <option value="">All Batches</option>
+                      {(classMetadata.find(c => c.class_name === form.class_name)?.lab_batches || []).map(b => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="label">Scheduled Date & Time</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={form.scheduled_time}
+                    onChange={e => setForm({...form, scheduled_time: e.target.value})}
+                  />
+                  <p className="text-xs text-ink-muted mt-1">Students in the selected class/batch will receive a notification.</p>
+                </div>
+              </div>
+
               <div className="mt-4 flex items-center justify-end gap-3 pt-4 border-t border-border">
                 <button type="button" onClick={() => setShowModal(false)} className="btn btn-ghost">Cancel</button>
                 <button type="submit" disabled={creating} className="btn-primary">

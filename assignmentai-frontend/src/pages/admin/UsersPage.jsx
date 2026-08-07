@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import {
   getUsers, createUser, updateUser, deleteUser, bulkUploadUsers,
-  getDepartments
+  getDepartments, getMetadataClasses
 } from '../../services/adminService';
 import * as xlsx from 'xlsx';
 
@@ -16,10 +16,11 @@ const ROLE_COLORS = {
   teacher: 'bg-primary-50 text-primary',
   student: 'bg-success/10 text-success',
   admin:   'bg-danger/10 text-danger',
+  ta:      'bg-warning/10 text-warning-text',
 };
 
 const EMPTY_FORM = {
-  name: '', email: '', role: 'student', department_id: '', password: ''
+  name: '', email: '', role: 'student', department_id: '', password: '', class_name: '', lab_batch: ''
 };
 
 const CSV_TEMPLATE_STUDENT =
@@ -33,6 +34,7 @@ export default function UsersPage() {
 
   const [users, setUsers]             = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [classMetadata, setClassMetadata] = useState([]);
   const [loading, setLoading]         = useState(true);
   const [search, setSearch]           = useState('');
   const [roleFilter, setRoleFilter]   = useState('all');
@@ -51,9 +53,14 @@ export default function UsersPage() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [usersData, depsData] = await Promise.all([getUsers(), getDepartments()]);
+      const [usersData, depsData, classesData] = await Promise.all([
+        getUsers(), 
+        getDepartments(),
+        getMetadataClasses()
+      ]);
       setUsers(usersData);
       setDepartments(depsData);
+      setClassMetadata(classesData);
     } catch {
       toast({ type: 'error', title: 'Failed to load users' });
     } finally {
@@ -65,7 +72,7 @@ export default function UsersPage() {
 
   const openCreate = () => { setForm(EMPTY_FORM); setSelected(null); setModal('create'); };
   const openEdit   = (u) => {
-    setForm({ name: u.name, email: u.email, role: u.role, department_id: u.department_id || '', password: '' });
+    setForm({ name: u.name, email: u.email, role: u.role, department_id: u.department_id || '', password: '', class_name: u.class_name || '', lab_batch: u.lab_batch || '' });
     setSelected(u); setModal('edit');
   };
   const openDelete = (u) => { setSelected(u); setModal('delete'); };
@@ -348,6 +355,7 @@ export default function UsersPage() {
               <select className="input" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
                 <option value="student">Student</option>
                 <option value="teacher">Teacher</option>
+                <option value="ta">Teaching Assistant (TA)</option>
               </select>
             </div>
             <div>
@@ -356,6 +364,24 @@ export default function UsersPage() {
                 <option value="">No Department</option>
                 {departments.map(d => (
                   <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Class Name (optional)</label>
+              <select className="input" value={form.class_name} onChange={e => setForm(f => ({ ...f, class_name: e.target.value, lab_batch: '' }))}>
+                <option value="">No Class</option>
+                {classMetadata.map(c => (
+                  <option key={c.class_name} value={c.class_name}>{c.class_name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Lab Batch (optional)</label>
+              <select className="input" value={form.lab_batch} onChange={e => setForm(f => ({ ...f, lab_batch: e.target.value }))}>
+                <option value="">No Lab Batch</option>
+                {(classMetadata.find(c => c.class_name === form.class_name)?.lab_batches || []).map(b => (
+                  <option key={b} value={b}>{b}</option>
                 ))}
               </select>
             </div>

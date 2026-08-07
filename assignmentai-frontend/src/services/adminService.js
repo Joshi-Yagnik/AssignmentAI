@@ -24,6 +24,7 @@ export const createUser     = (body)     => api.post('/admin/users', body).then(
 export const updateUser     = (id, body) => api.put(`/admin/users/${id}`, body).then(r => r.data);
 export const deleteUser     = (id)       => api.delete(`/admin/users/${id}`).then(r => r.data);
 export const bulkUploadUsers = (body)    => api.post('/admin/users/bulk', body).then(r => r.data);
+export const getMetadataClasses = ()     => api.get('/admin/users/metadata/classes').then(r => r.data);
 
 // ── AI ENGINE CONFIG ────────────────────────────────────────────────────────
 export const getAiConfig    = ()         => api.get('/admin/config/ai').then(r => r.data);
@@ -38,6 +39,7 @@ export const getSecurityTrends = ()      => api.get('/admin/reports/security-tre
 export const getReportOverview    = ()   => api.get('/admin/reports/overview').then(r => r.data);
 export const getReportAssignments = ()   => api.get('/admin/reports/assignments').then(r => r.data);
 export const getReportStudents    = ()   => api.get('/admin/reports/students').then(r => r.data);
+export const getDashboardStats    = ()   => api.get('/admin/dashboard/stats').then(r => r.data);
 
 // ── PLATFORM SETTINGS ───────────────────────────────────────────────────────
 export const getSettings    = ()     => api.get('/admin/settings').then(r => r.data);

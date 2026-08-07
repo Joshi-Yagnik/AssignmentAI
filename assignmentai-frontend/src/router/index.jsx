@@ -4,6 +4,7 @@ import PortalLayout from '../components/layouts/PortalLayout';
 import { useAuth } from '../context/AuthContext';
 import { SocketProvider } from '../context/SocketContext';
 import GlobalNotifications from '../components/shared/GlobalNotifications';
+import ProfilePage from '../pages/shared/ProfilePage';
 
 // Auth
 import LoginPage from '../pages/auth/LoginPage';
@@ -32,6 +33,11 @@ import TeacherVivaMonitorPage from '../pages/teacher/TeacherVivaMonitorPage';
 import TeacherStudentsPage  from '../pages/teacher/TeacherStudentsPage';
 import TeacherStudentDetailsPage from '../pages/teacher/TeacherStudentDetailsPage';
 import TeacherMaterialsPage from '../pages/teacher/TeacherMaterialsPage';
+import VivaGradingQueuePage from '../pages/teacher/VivaGradingQueuePage';
+
+// TA
+import TADashboard   from '../pages/ta/TADashboard';
+import TAMonitorPage from '../pages/ta/TAMonitorPage';
 
 // Admin
 import AdminDashboard   from '../pages/admin/AdminDashboard';
@@ -59,7 +65,7 @@ const Placeholder = ({ title }) => (
 );
 
 // ── Role → default portal path ────────────────────────────────────────────────
-const ROLE_HOME = { student: '/student', teacher: '/teacher', admin: '/admin' };
+const ROLE_HOME = { student: '/student', teacher: '/teacher', admin: '/admin', ta: '/ta' };
 
 // ── Full-screen auth-check spinner ────────────────────────────────────────────
 function AuthSpinner() {
@@ -137,6 +143,7 @@ export default function AppRouter() {
               <Route path="grades"      element={<StudentGradesPage />} />
               <Route path="materials"   element={<StudentMaterialsPage />} />
               <Route path="requests"    element={<StudentMyRequestsPage />} />
+              <Route path="profile"     element={<ProfilePage />} />
             </Route>
 
             {/* ── Teacher Portal ─────────────────────────────────────────── */}
@@ -153,6 +160,7 @@ export default function AppRouter() {
               <Route path="grading"     element={<TeacherGradingQueuePage />} />
               <Route path="viva"        element={<TeacherVivaPage />} />
               <Route path="viva/monitor/:sessionId" element={<TeacherVivaMonitorPage />} />
+              <Route path="viva/grading/:sessionId" element={<VivaGradingQueuePage />} />
               <Route path="viva/report/:sessionId" element={<VivaReportPage />} />
               <Route path="students"    element={<TeacherStudentsPage />} />
               <Route path="students/:studentId" element={<TeacherStudentDetailsPage />} />
@@ -160,6 +168,7 @@ export default function AppRouter() {
               <Route path="analytics"   element={<TeacherAnalyticsPage />} />
               <Route path="review/:submissionId" element={<ReviewWorkPage />} />
               <Route path="materials"   element={<TeacherMaterialsPage />} />
+              <Route path="profile"     element={<ProfilePage />} />
             </Route>
 
             {/* ── Admin Portal ───────────────────────────────────────────── */}
@@ -182,6 +191,21 @@ export default function AppRouter() {
               <Route path="reports"       element={<AdminGlobalReportsPage />} />
               <Route path="security"      element={<AdminReportsPage />} />
               <Route path="settings"      element={<AdminSettingsPage />} />
+              <Route path="profile"       element={<ProfilePage />} />
+            </Route>
+
+            {/* ── TA Portal ────────────────────────────────────────────── */}
+            <Route
+              path="/ta"
+              element={
+                <ProtectedRoute allowedRoles={['ta']}>
+                  <PortalLayout role="ta" />
+                </ProtectedRoute>
+              }
+            >
+              <Route index                          element={<TADashboard />} />
+              <Route path="monitor/:sessionId"      element={<TAMonitorPage />} />
+              <Route path="profile"                 element={<ProfilePage />} />
             </Route>
 
             {/* 404 */}

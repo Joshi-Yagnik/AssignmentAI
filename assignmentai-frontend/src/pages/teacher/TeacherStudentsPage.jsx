@@ -29,6 +29,8 @@ export default function TeacherStudentsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterClass, setFilterClass] = useState('all');
+  const [filterLabBatch, setFilterLabBatch] = useState('all');
 
   const load = useCallback(async () => {
     try {
@@ -52,8 +54,13 @@ export default function TeacherStudentsPage() {
     if (q && !name.includes(q) && !email.includes(q)) return false;
     if (filterStatus === 'flagged' && (s.avg_score === null || s.avg_score >= 60)) return false;
     if (filterStatus === 'good' && (s.avg_score === null || s.avg_score < 60)) return false;
+    if (filterClass !== 'all' && s.class_name !== filterClass) return false;
+    if (filterLabBatch !== 'all' && s.lab_batch !== filterLabBatch) return false;
     return true;
   });
+
+  const uniqueClasses = [...new Set(students.map(s => s.class_name).filter(Boolean))].sort();
+  const uniqueLabBatches = [...new Set(students.map(s => s.lab_batch).filter(Boolean))].sort();
 
   return (
     <>
@@ -113,8 +120,8 @@ export default function TeacherStudentsPage() {
         </div>
 
         {/* Actions Row */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-between">
-          <div className="relative w-full sm:max-w-md">
+        <div className="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center">
+          <div className="relative w-full xl:max-w-xs">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
             <input
               type="text"
@@ -124,7 +131,28 @@ export default function TeacherStudentsPage() {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          <div className="flex gap-2">
+          
+          <div className="flex flex-wrap items-center gap-2">
+            <select 
+              className="input h-10 bg-surface min-w-[140px]" 
+              value={filterClass} 
+              onChange={e => setFilterClass(e.target.value)}
+            >
+              <option value="all">All Classes</option>
+              {uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+
+            <select 
+              className="input h-10 bg-surface min-w-[140px]" 
+              value={filterLabBatch} 
+              onChange={e => setFilterLabBatch(e.target.value)}
+            >
+              <option value="all">All Lab Batches</option>
+              {uniqueLabBatches.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+
+            <div className="w-px h-6 bg-border mx-2" />
+
             <button
               className={`btn-sm px-4 rounded-full border transition-colors ${filterStatus === 'all' ? 'bg-primary text-white border-primary' : 'btn-secondary bg-surface'}`}
               onClick={() => setFilterStatus('all')}
@@ -195,8 +223,10 @@ export default function TeacherStudentsPage() {
                           </div>
                           <div>
                             <p className="font-semibold text-ink-primary">{s.first_name} {s.last_name}</p>
-                            <p className="text-xs text-ink-muted flex items-center gap-1 mt-0.5">
-                              <UserCircle className="w-3.5 h-3.5" /> ID: {s.id.substring(0, 8)}…
+                            <p className="text-xs text-ink-muted flex flex-wrap items-center gap-x-3 mt-1">
+                              <span className="flex items-center gap-1"><UserCircle className="w-3.5 h-3.5" /> ID: {s.enrollment_number || s.id.substring(0, 8)}</span>
+                              {s.class_name && <span className="px-1.5 py-0.5 rounded bg-surface-high border border-border text-[10px] uppercase font-bold text-ink-secondary">{s.class_name}</span>}
+                              {s.lab_batch && <span className="px-1.5 py-0.5 rounded bg-surface-high border border-border text-[10px] uppercase font-bold text-ink-secondary">{s.lab_batch}</span>}
                             </p>
                           </div>
                         </div>

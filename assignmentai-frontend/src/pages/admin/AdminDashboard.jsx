@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import TopBar from '../../components/shared/TopBar';
 import StatusBadge from '../../components/shared/StatusBadge';
 import DataTable from '../../components/shared/DataTable';
@@ -9,8 +10,7 @@ import {
   Server, AlertTriangle, Info, CheckCircle,
   TrendingUp, Shield
 } from 'lucide-react';
-import { ADMIN_STATS, DEPARTMENTS, RECENT_ACTIVITY, VIVA_SESSIONS } from '../../data/mockData';
-
+import { getDashboardStats } from '../../services/adminService';
 function MetricCard({ icon: Icon, label, value, sub, color }) {
   return (
     <div className="card flex flex-col gap-3">
@@ -42,8 +42,20 @@ const SYSTEM_ALERTS = [
 ];
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const toast = useToast();
   const [vivaModal, setVivaModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    getDashboardStats()
+      .then(data => { setStats(data); setLoading(false); })
+      .catch(err => {
+        toast({ type: 'error', title: 'Failed to load dashboard stats' });
+        setLoading(false);
+      });
+  }, []);
 
   const activityColumns = [
     { key: 'user',   label: 'User',   sortable: true,
@@ -82,22 +94,26 @@ export default function AdminDashboard() {
       />
 
       <main className="p-6 flex flex-col gap-6">
-        {/* 6 metric cards */}
-        <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
-          <MetricCard icon={Users}    label="Total Students"      value={ADMIN_STATS.totalStudents}     sub="+12 this week"      color="bg-info"     />
-          <MetricCard icon={BookOpen} label="Active Teachers"     value={ADMIN_STATS.activeTeachers}    sub="3 departments"      color="bg-primary"  />
-          <MetricCard icon={Activity} label="Total Assignments"   value={ADMIN_STATS.totalAssignments}  sub="Active semester"    color="bg-primary-500" />
-          <MetricCard icon={Bot}      label="AI Grading Accuracy" value={`${ADMIN_STATS.aiAccuracy}%`}  sub="Model v2.3.1"       color="bg-success"  />
-          <MetricCard icon={Video}    label="Viva Sessions"       value={ADMIN_STATS.vivaSessionsMonth} sub="This month"         color="bg-warning"  />
-          <MetricCard icon={Server}   label="System Uptime"       value={`${ADMIN_STATS.systemUptime}%`} sub="Last 30 days"      color="bg-success"  />
-        </div>
+        {loading || !stats ? (
+          <div className="flex justify-center p-12"><div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>
+        ) : (
+          <>
+            {/* 6 metric cards */}
+            <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
+              <MetricCard icon={Users}    label="Total Students"      value={stats.overview.totalStudents}     sub="Enrolled"           color="bg-info"     />
+              <MetricCard icon={BookOpen} label="Active Teachers"     value={stats.overview.totalTeachers}    sub="Staff members"      color="bg-primary"  />
+              <MetricCard icon={Activity} label="Total Assignments"   value={stats.overview.totalAssignments}  sub="System-wide"        color="bg-primary-500" />
+              <MetricCard icon={Bot}      label="AI Grading Accuracy" value={`${stats.overview.aiAccuracy}%`}  sub="Model v2.3.1"       color="bg-success"  />
+              <MetricCard icon={Video}    label="Viva Sessions"       value={stats.overview.vivaSessionsMonth} sub="Active sessions"    color="bg-warning"  />
+              <MetricCard icon={Server}   label="System Uptime"       value={`${stats.overview.systemUptime}%`} sub="Last 30 days"      color="bg-success"  />
+            </div>
 
         <div className="grid grid-cols-3 gap-6">
           {/* Department overview */}
           <div className="col-span-2 flex flex-col gap-4">
             <h2 className="text-headline-sm">Department Overview</h2>
             <div className="flex flex-col gap-3">
-              {DEPARTMENTS.map(d => (
+              {stats.departments.map(d => (
                 <div key={d.id} className="card-hover flex items-center gap-5 py-4">
                   <div className="w-10 h-10 rounded-lg bg-primary-50 flex items-center justify-center shrink-0">
                     <Shield className="w-5 h-5 text-primary" />
@@ -113,7 +129,7 @@ export default function AdminDashboard() {
                       }
                     </div>
                   </div>
-                  <button className="btn btn-secondary btn-sm" onClick={() => toast({ type: 'info', title: `Opening ${d.name}…` })}>
+                  <button className="btn btn-secondary btn-sm" onClick={() => navigate('/admin/departments')}>
                     View
                   </button>
                 </div>
@@ -124,7 +140,7 @@ export default function AdminDashboard() {
             <h2 className="text-headline-sm mt-2">Recent Activity</h2>
             <div className="card p-0 overflow-hidden">
               <div className="p-4">
-                <DataTable columns={activityColumns} data={RECENT_ACTIVITY} pageSize={5} />
+                <DataTable columns={activityColumns} data={stats.recentActivity} pageSize={5} />
               </div>
             </div>
           </div>
@@ -170,8 +186,14 @@ export default function AdminDashboard() {
                 <StatusBadge status="live" dot />
               </div>
               <div className="p-3 bg-danger-bg rounded-lg border border-danger/20">
-                <p className="font-semibold text-ink-primary text-sm">{VIVA_SESSIONS[0].title}</p>
-                <p className="text-label-sm text-ink-secondary mt-0.5">{VIVA_SESSIONS[0].teacher} · {VIVA_SESSIONS[0].students} participants</p>
+                {stats.vivaSessions.length > 0 ? (
+                  <>
+                    <p className="font-semibold text-ink-primary text-sm">{stats.vivaSessions[0].title}</p>
+                    <p className="text-label-sm text-ink-secondary mt-0.5">{stats.vivaSessions[0].teacher}</p>
+                  </>
+                ) : (
+                  <p className="text-label-sm text-ink-secondary">No active sessions</p>
+                )}
               </div>
               <button
                 className="btn-primary btn-sm w-full justify-center"
@@ -194,8 +216,10 @@ export default function AdminDashboard() {
                 );
               })}
             </div>
+            </div>
           </div>
-        </div>
+        </>
+        )}
       </main>
 
       <Modal
