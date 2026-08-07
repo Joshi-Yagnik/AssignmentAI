@@ -1,0 +1,90 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CD — Continuous Deployment
+# Runs only when CI passes on the main branch.
+# Frontend  → Vercel  (via Vercel CLI)
+# Backend   → Render  (via deploy hook URL stored in GitHub Secret)
+# ─────────────────────────────────────────────────────────────────────────────
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]           # only trigger after CI succeeds
+    types: [completed]
+    branches: [main]
+
+jobs:
+  # ── Guard: only deploy when CI passed ───────────────────────────────────────
+  check-ci:
+    name: Guard — CI must have passed
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - run: echo "CI passed — proceeding to deploy"
+
+  # ── Deploy Frontend to Vercel ────────────────────────────────────────────────
+  deploy-frontend:
+    name: Deploy Frontend → Vercel
+    runs-on: ubuntu-latest
+    needs: check-ci
+
+    defaults:
+      run:
+        working-directory: assignmentai-frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: assignmentai-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      # Pull project settings from Vercel (links to the correct project)
+      - name: Pull Vercel environment & settings
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      # Build using Vercel's builder (respects vercel.json at repo root)
+      - name: Build with Vercel
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: ${{ github.workspace }}
+
+      # Deploy the pre-built output
+      - name: Deploy to Vercel (production)
+        id: deploy
+        run: |
+          URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$URL" >> $GITHUB_OUTPUT
+        working-directory: ${{ github.workspace }}
+
+      - name: Print deployed URL
+        run: echo "Frontend deployed to ${{ steps.deploy.outputs.url }}"
+
+  # ── Deploy Backend to Render ─────────────────────────────────────────────────
+  deploy-backend:
+    name: Deploy Backend → Render
+    runs-on: ubuntu-latest
+    needs: check-ci
+
+    steps:
+      - name: Trigger Render deploy hook
+        # Render provides a deploy hook URL in: Dashboard > Service > Settings > Deploy Hooks
+        # Store it as RENDER_DEPLOY_HOOK_URL in GitHub Secrets
+        run: |
+          curl -s -o response.json -w "\n%{http_code}" \
+            --request POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          HTTP_CODE=$(tail -1 response.json)
+          cat response.json
+          if [ "$HTTP_CODE" -ne 200 ] && [ "$HTTP_CODE" -ne 201 ]; then
+            echo "Render deploy hook returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "Backend deploy triggered successfully on Render"

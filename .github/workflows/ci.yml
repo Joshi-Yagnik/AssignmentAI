@@ -1,0 +1,85 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI — Continuous Integration
+# Runs on every push and pull request.
+# Validates: install → type-check → build (frontend) + install → syntax check (backend)
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Frontend ────────────────────────────────────────────────────────────────
+  frontend:
+    name: Frontend — Build & Type-check
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: assignmentai-frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: assignmentai-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      # Create a dummy .env so Vite env vars resolve without real secrets
+      - name: Create stub .env for build
+        run: |
+          echo "VITE_API_BASE_URL=http://localhost:5000/api" >> .env
+          echo "VITE_SUPABASE_URL=https://placeholder.supabase.co" >> .env
+          echo "VITE_SUPABASE_ANON_KEY=placeholder" >> .env
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+
+      - name: Production build (Vite)
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: assignmentai-frontend/dist
+          retention-days: 7
+
+  # ── Backend ─────────────────────────────────────────────────────────────────
+  backend:
+    name: Backend — Install & Syntax Check
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: assignmentai-backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: assignmentai-backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      # Node.js --check parses every JS file for syntax errors without running it
+      - name: Syntax check (node --check)
+        run: |
+          find src -name "*.js" -print0 | xargs -0 node --check
+          echo "All backend files passed syntax check"
