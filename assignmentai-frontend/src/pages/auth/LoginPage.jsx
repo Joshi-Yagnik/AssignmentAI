@@ -105,6 +105,18 @@ function LoginView({ onForgot, onSignup }) {
   const [loading,  setLoading] = useState(false);
   const [fieldErr, setErr]     = useState('');
 
+  // When Admin role is selected, pre-fill the known admin email
+  const handleRoleSelect = (id) => {
+    setRole(id);
+    setErr('');
+    if (id === 'Admin') {
+      setEmail('admin12@gmail.com');
+    } else if (email === 'admin12@gmail.com') {
+      // Clear pre-filled admin email when switching away
+      setEmail('');
+    }
+  };
+
   const roleHome = { Student: '/student', Teacher: '/teacher', Admin: '/admin', Ta: '/ta', TA: '/ta' };
 
   const handleLogin = async (e) => {
@@ -144,7 +156,7 @@ function LoginView({ onForgot, onSignup }) {
           <button
             key={id}
             type="button"
-            onClick={() => { setRole(id); setErr(''); }}
+            onClick={() => handleRoleSelect(id)}
             className={[
               'flex flex-col items-center gap-1 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all duration-300',
               role === id
@@ -157,6 +169,16 @@ function LoginView({ onForgot, onSignup }) {
           </button>
         ))}
       </div>
+
+      {/* Admin info hint */}
+      {role === 'Admin' && (
+        <div className="mb-4 flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl bg-indigo-50 border border-indigo-100">
+          <ShieldCheck className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+          <p className="text-xs text-indigo-700 leading-relaxed">
+            Admin access is restricted. Use the official admin credentials to sign in.
+          </p>
+        </div>
+      )}
 
       <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
         <Field label="Email Address" id="email" icon={Mail}>
@@ -256,16 +278,18 @@ function LoginView({ onForgot, onSignup }) {
         </button>
       </div>
 
-      {/* Footer */}
-      <p className="text-center text-sm text-slate-500 mt-8">
-        Don't have an account?{' '}
-        <button
-          onClick={onSignup}
-          className="text-indigo-600 font-semibold hover:text-indigo-800 transition-colors"
-        >
-          Create account
-        </button>
-      </p>
+      {/* Footer — hide signup link for Admin */}
+      {role !== 'Admin' && (
+        <p className="text-center text-sm text-slate-500 mt-8">
+          Don't have an account?{' '}
+          <button
+            onClick={onSignup}
+            className="text-indigo-600 font-semibold hover:text-indigo-800 transition-colors"
+          >
+            Create account
+          </button>
+        </p>
+      )}
     </div>
   );
 }
@@ -350,9 +374,9 @@ function SignupView({ onBack }) {
         <p className="text-slate-500 text-sm mt-1">Join AssignmentAI and get started</p>
       </div>
 
-      {/* Role selector */}
+      {/* Role selector — Admin excluded from signup */}
       <div className="grid grid-cols-3 gap-2 mb-6 p-1 bg-slate-100 rounded-2xl">
-        {ROLES.map(({ id, label, Icon }) => (
+        {ROLES.filter(r => r.id !== 'Admin').map(({ id, label, Icon }) => (
           <button
             key={id}
             type="button"
