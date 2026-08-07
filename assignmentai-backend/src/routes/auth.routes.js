@@ -33,10 +33,10 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ error: 'email, password, and role are required' });
     }
 
-    const validRoles = ['admin', 'teacher', 'student'];
+    const validRoles = ['admin', 'teacher', 'student', 'ta'];
     const normalizedRole = role.toLowerCase();
     if (!validRoles.includes(normalizedRole)) {
-      return res.status(400).json({ error: 'Invalid role. Must be admin, teacher, or student.' });
+      return res.status(400).json({ error: 'Invalid role. Must be admin, teacher, student, or ta.' });
     }
 
     if (password.length < 8) {
