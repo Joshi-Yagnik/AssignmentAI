@@ -8,7 +8,7 @@ import api from '../../services/api';
 
 export default function TeacherMaterialsPage() {
   const { user } = useAuth();
-  const { addToast } = useToast();
+  const toast = useToast();
   
   const [materials, setMaterials] = useState([]);
   const [subjects, setSubjects] = useState([]);
@@ -29,14 +29,14 @@ export default function TeacherMaterialsPage() {
     try {
       const [matsRes, subsRes] = await Promise.all([
         getMaterials(),
-        api.get('/admin/subjects') // Assume teacher can see subjects they belong to or all subjects
+        api.get('/admin/subjects').catch(() => ({ data: [] }))
       ]);
-      setMaterials(matsRes);
-      // Depending on the backend, admin/subjects might return an array or { data }
-      setSubjects(Array.isArray(subsRes.data) ? subsRes.data : []);
+      setMaterials(matsRes || []);
+      const subs = Array.isArray(subsRes.data) ? subsRes.data : Array.isArray(subsRes) ? subsRes : [];
+      setSubjects(subs);
     } catch (err) {
       console.error(err);
-      addToast('Failed to load data', 'error');
+      toast({ type: 'error', title: 'Failed to load data' });
     } finally {
       setIsLoading(false);
     }
@@ -47,9 +47,9 @@ export default function TeacherMaterialsPage() {
     try {
       await deleteMaterial(id);
       setMaterials(materials.filter(m => m.id !== id));
-      addToast('Material deleted', 'success');
+      toast({ type: 'success', title: 'Material deleted' });
     } catch (err) {
-      addToast('Failed to delete', 'error');
+      toast({ type: 'error', title: 'Failed to delete' });
     }
   };
 
@@ -61,8 +61,8 @@ export default function TeacherMaterialsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!file) return addToast('Please select a file to upload', 'error');
-    if (!formData.subject_id) return addToast('Please select a subject', 'error');
+    if (!file) return toast({ type: 'error', title: 'Please select a file to upload' });
+    if (!formData.subject_id) return toast({ type: 'error', title: 'Please select a subject' });
 
     setIsSubmitting(true);
     setUploadProgress(0);
@@ -93,10 +93,10 @@ export default function TeacherMaterialsPage() {
       setShowModal(false);
       setFormData({ title: '', description: '', subject_id: '' });
       setFile(null);
-      addToast('Study material published successfully!', 'success');
+      toast({ type: 'success', title: 'Study material published successfully!' });
     } catch (err) {
       console.error(err);
-      addToast(err.message || 'Failed to upload material', 'error');
+      toast({ type: 'error', title: err.message || 'Failed to upload material' });
     } finally {
       setIsSubmitting(false);
       setUploadProgress(0);

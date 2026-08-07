@@ -5,7 +5,7 @@ import { getDownloadUrl } from '../../services/assignmentService';
 import { useToast } from '../../components/shared/Toast';
 
 export default function StudentMaterialsPage() {
-  const { addToast } = useToast();
+  const toast = useToast();
   
   const [materials, setMaterials] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -25,7 +25,7 @@ export default function StudentMaterialsPage() {
       setMaterials(mats);
     } catch (err) {
       console.error(err);
-      addToast('Failed to load study materials', 'error');
+      toast({ type: 'error', title: 'Failed to load study materials' });
     } finally {
       setIsLoading(false);
     }
@@ -43,7 +43,7 @@ export default function StudentMaterialsPage() {
       const { signedUrl } = await getDownloadUrl({ bucket: 'study-materials', path: mat.file_url });
       window.open(signedUrl, '_blank');
     } catch (err) {
-      addToast('Failed to open file', 'error');
+      toast({ type: 'error', title: 'Failed to open file' });
     }
   };
 

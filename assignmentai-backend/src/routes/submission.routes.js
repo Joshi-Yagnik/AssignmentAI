@@ -265,12 +265,17 @@ router.get('/teacher/students/:studentId', requireAuth, requireRole(['teacher', 
       .eq('user_id', studentId)
       .order('timestamp', { ascending: false });
 
-    if (logErr) throw logErr;
+    let safeLogs = securityLogs || [];
+    if (logErr && (logErr.code === '42P01' || logErr.message?.includes('does not exist'))) {
+      safeLogs = [];
+    } else if (logErr) {
+      throw logErr;
+    }
 
     res.json({
       profile: student,
       submissions: submissions || [],
-      securityLogs: securityLogs || []
+      securityLogs: safeLogs
     });
   } catch (err) {
     console.error('[GET /teacher/students/:studentId]', err);

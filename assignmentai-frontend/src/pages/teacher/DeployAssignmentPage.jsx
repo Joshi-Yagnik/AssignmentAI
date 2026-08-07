@@ -39,6 +39,7 @@ function SectionLabel({ children }) {
 // ── PDF Upload Box ─────────────────────────────────────────────────────────────
 function PdfUploadBox({ label, badge, badgeColor, hint, accept, file, uploading, progress, uploaded, uploadedUrl, onFileSelect, onClear, restricted }) {
   const inputRef = useRef(null);
+  const toast = useToast();
 
   const handleDrop = (e) => {
     e.preventDefault();
