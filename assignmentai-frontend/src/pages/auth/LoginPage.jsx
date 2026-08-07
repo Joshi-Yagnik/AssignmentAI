@@ -105,16 +105,9 @@ function LoginView({ onForgot, onSignup }) {
   const [loading,  setLoading] = useState(false);
   const [fieldErr, setErr]     = useState('');
 
-  // When Admin role is selected, pre-fill the known admin email
   const handleRoleSelect = (id) => {
     setRole(id);
     setErr('');
-    if (id === 'Admin') {
-      setEmail('admin12@gmail.com');
-    } else if (email === 'admin12@gmail.com') {
-      // Clear pre-filled admin email when switching away
-      setEmail('');
-    }
   };
 
   const roleHome = { Student: '/student', Teacher: '/teacher', Admin: '/admin', Ta: '/ta', TA: '/ta' };
