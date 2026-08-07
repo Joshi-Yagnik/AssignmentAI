@@ -42,14 +42,8 @@ jobs:
           cache: "npm"
           cache-dependency-path: assignmentai-frontend/package-lock.json
 
-      - name: Install dependencies
-        run: npm ci --prefer-offline
-
-      - name: Install Vercel CLI
-        run: npm install -g vercel@latest
-
-      - name: Resolve and Link Vercel Project
-        # Dynamically fetch the project ID and org ID and write them to .vercel/project.json
+      - name: Resolve Vercel Project IDs
+        id: resolve-ids
         run: |
           echo "Fetching project info for 'assignment-ai'..."
           RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" "https://api.vercel.com/v9/projects/assignment-ai")
@@ -65,36 +59,17 @@ jobs:
           ORG_ID=$(echo "$BODY" | jq -r '.accountId')
           PROJ_ID=$(echo "$BODY" | jq -r '.id')
           
-          echo "Resolved ORG_ID=$ORG_ID"
-          echo "Resolved PROJ_ID=$PROJ_ID"
-          
-          # Manually link the project to bypass CLI scope bugs
-          mkdir -p .vercel
-          echo "{\"orgId\":\"$ORG_ID\",\"projectId\":\"$PROJ_ID\"}" > .vercel/project.json
-          echo "Created .vercel/project.json:"
-          cat .vercel/project.json
-        working-directory: ${{ github.workspace }}
+          echo "VERCEL_ORG_ID=$ORG_ID" >> $GITHUB_ENV
+          echo "VERCEL_PROJECT_ID=$PROJ_ID" >> $GITHUB_ENV
 
-      # Pull project settings from Vercel (downloads env vars to .vercel/.env.production.local)
-      - name: Pull Vercel environment & settings
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-        working-directory: ${{ github.workspace }}
-
-      # Build using Vercel's builder
-      - name: Build with Vercel
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-        working-directory: ${{ github.workspace }}
-
-      # Deploy the pre-built output
-      - name: Deploy to Vercel (production)
-        id: deploy
-        run: |
-          URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
-          echo "url=$URL" >> $GITHUB_OUTPUT
-        working-directory: ${{ github.workspace }}
-
-      - name: Print deployed URL
-        run: echo "Frontend deployed to ${{ steps.deploy.outputs.url }}"
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v20
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ env.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ env.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod --yes'
+          working-directory: ${{ github.workspace }}
 
   # ── Deploy Backend to Render ─────────────────────────────────────────────────
   deploy-backend:
