@@ -1,16 +1,18 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import TopBar from '../../components/shared/TopBar';
+import DataTable from '../../components/shared/DataTable';
+import Modal from '../../components/shared/Modal';
+import StatusBadge from '../../components/shared/StatusBadge';
 import { useToast } from '../../components/shared/Toast';
 import {
   Upload, Lock, Info, Bot, Video, Shield, Save, Send,
   FileText, X, CheckCircle2, Loader2, ExternalLink,
-  BookOpen, Calendar
+  BookOpen, Calendar, Trash2, Plus, Eye, Pencil
 } from 'lucide-react';
 import {
-  getUploadUrl, uploadFileToStorage, createAssignment, getDownloadUrl
+  getUploadUrl, uploadFileToStorage, createAssignment, getDownloadUrl, getAssignments, deleteAssignment
 } from '../../services/assignmentService';
 import { getSubjects } from '../../services/adminService';
-import { useEffect } from 'react';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -134,6 +136,44 @@ function PdfUploadBox({ label, badge, badgeColor, hint, accept, file, uploading,
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function DeployAssignmentPage() {
   const toast = useToast();
+  
+  // Dual View State: 'list' or 'deploy'
+  const [view, setView] = useState('list');
+
+  // List View State
+  const [assignments, setAssignments] = useState([]);
+  const [loadingList, setLoadingList] = useState(true);
+  const [deleteModal, setDeleteModal] = useState(null);
+
+  const loadAssignments = useCallback(async () => {
+    try {
+      setLoadingList(true);
+      const data = await getAssignments();
+      setAssignments(data);
+    } catch (err) {
+      toast({ type: 'error', title: 'Failed to load assignments' });
+    } finally {
+      setLoadingList(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    if (view === 'list') {
+      loadAssignments();
+    }
+  }, [view, loadAssignments]);
+
+  const handleDelete = async () => {
+    if (!deleteModal) return;
+    try {
+      await deleteAssignment(deleteModal.id);
+      setAssignments(prev => prev.filter(a => a.id !== deleteModal.id));
+      toast({ type: 'success', title: 'Assignment deleted' });
+      setDeleteModal(null);
+    } catch (err) {
+      toast({ type: 'error', title: err.message || 'Failed to delete assignment' });
+    }
+  };
 
   // Form state
   const [form, setForm] = useState({
@@ -190,16 +230,12 @@ export default function DeployAssignmentPage() {
     setUploading(true);
     setProgress(0);
     try {
-      // 1. Get signed upload URL from backend
       const { signedUrl, path } = await getUploadUrl({
         bucket,
         filename: `${Date.now()}_${file.name}`,
         contentType: file.type || 'application/pdf',
       });
-
-      // 2. Upload directly to Supabase Storage
       await uploadFileToStorage(signedUrl, file, setProgress);
-
       setUrl(path);
       toast({ type: 'success', title: 'PDF uploaded successfully!' });
     } catch (err) {
@@ -247,6 +283,8 @@ export default function DeployAssignmentPage() {
       setAllowedFormats(['.pdf', '.docx', '.doc', '.png', '.jpg', '.jpeg']);
       setAllowResubmission(true);
       setQFile(null); setQUrl(''); setAFile(null); setAUrl('');
+      // Return to list view
+      setView('list');
     } catch (err) {
       toast({ type: 'error', title: err.message || 'Deploy failed' });
     } finally {
@@ -254,14 +292,84 @@ export default function DeployAssignmentPage() {
     }
   };
 
+  const listColumns = [
+    { key: 'title', label: 'Assignment', sortable: true, render: (v, row) => (
+      <div>
+        <p className="font-semibold text-ink-primary">{v}</p>
+        <p className="text-label-sm text-ink-muted">{row.subjects?.name || 'Unknown Subject'}</p>
+      </div>
+    )},
+    { key: 'deadline', label: 'Deadline', width: '180px', sortable: true, render: v => (
+      <span className={new Date(v) < new Date() ? 'text-danger font-medium' : 'text-ink-secondary'}>
+        {new Date(v).toLocaleDateString()} {new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      </span>
+    )},
+    { key: 'max_marks', label: 'Marks', width: '80px', render: v => <span className="font-semibold">{v}</span> },
+    { key: 'actions', label: 'Actions', width: '90px', render: (_, row) => (
+      <div className="flex items-center gap-2">
+        <button className="btn btn-ghost btn-sm text-danger hover:bg-danger/10" onClick={() => setDeleteModal(row)} title="Delete">
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+    )}
+  ];
+
+  if (view === 'list') {
+    return (
+      <div className="flex flex-col h-full">
+        <TopBar
+          title="Assignments"
+          subtitle="Manage and track your active assignments"
+          actions={
+            <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => setView('deploy')}>
+              <Plus className="w-4 h-4" /> New Assignment
+            </button>
+          }
+        />
+        <main className="p-4 md:p-6 flex-1">
+          {loadingList ? (
+            <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+          ) : assignments.length === 0 ? (
+            <div className="card text-center p-12">
+              <FileText className="w-12 h-12 text-ink-muted mx-auto mb-4 opacity-50" />
+              <h3 className="text-lg font-semibold text-ink-primary mb-2">No assignments yet</h3>
+              <p className="text-ink-secondary mb-6 max-w-md mx-auto">You haven't created any assignments yet. Deploy your first assignment to get started.</p>
+              <button className="btn-primary" onClick={() => setView('deploy')}>Create Assignment</button>
+            </div>
+          ) : (
+            <div className="card p-0 overflow-hidden">
+              <DataTable columns={listColumns} data={assignments} />
+            </div>
+          )}
+        </main>
+
+        <Modal open={!!deleteModal} onClose={() => setDeleteModal(null)} title="Delete Assignment">
+          <div className="flex flex-col gap-6">
+            <div className="flex items-start gap-4 p-4 bg-danger/10 text-danger rounded-xl border border-danger/20">
+              <Trash2 className="w-6 h-6 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold mb-1">Delete "{deleteModal?.title}"?</p>
+                <p className="text-sm opacity-90">This action cannot be undone. All associated submissions, grades, and AI reports will be permanently deleted.</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <button className="btn btn-ghost" onClick={() => setDeleteModal(null)}>Cancel</button>
+              <button className="btn-primary bg-danger border-danger hover:bg-danger-hover" onClick={handleDelete}>Delete Assignment</button>
+            </div>
+          </div>
+        </Modal>
+      </div>
+    );
+  }
+
   return (
-    <form onSubmit={handleDeploy}>
+    <form onSubmit={handleDeploy} className="flex flex-col min-h-screen">
       <TopBar
         title="Deploy Assignment"
         subtitle="Create and publish a new assignment with PDF question papers"
         actions={
           <div className="flex items-center gap-2">
-            <button type="button" className="btn btn-ghost btn-sm">Cancel</button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setView('list')}>Back to List</button>
             <button type="submit" className="btn-primary btn-sm flex items-center gap-2" disabled={deploying}>
               {deploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               <span className="hidden sm:inline">Deploy Assignment</span>
@@ -484,7 +592,7 @@ export default function DeployAssignmentPage() {
           {(qUploading || aUploading) && <span className="flex items-center gap-1 text-primary"><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</span>}
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" className="btn btn-ghost btn-sm">Cancel</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setView('list')}>Cancel</button>
           <button type="button" className="btn btn-secondary btn-sm flex items-center gap-2"
             onClick={() => toast({ type: 'info', title: 'Saved as draft.' })}>
             <Save className="w-4 h-4" /> <span className="hidden sm:inline">Save Draft</span>

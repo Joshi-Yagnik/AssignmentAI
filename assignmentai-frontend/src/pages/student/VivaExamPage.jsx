@@ -82,6 +82,11 @@ export default function VivaExamPage() {
     async function init() {
       try {
         const { data: session } = await api.get(`/viva/sessions/${sessionId}`);
+        if (session.status === 'completed') {
+          navigate(`/student/viva/report/${sessionId}`);
+          return;
+        }
+        
         const parsed = JSON.parse(session.transcript || '{}');
         setMeta(parsed);
         setTimeLeft((parsed.duration_minutes || 30) * 60);

@@ -63,10 +63,14 @@ export default function VivaLobbyPage() {
     try {
       // Call join endpoint — creates a personal participation row for this student
       const { data } = await api.post(`/viva/sessions/${session.id}/join`);
-      // Navigate to exam with the student's own session id (not the template id)
-      navigate(`/student/viva/${data.sessionId}`, {
-        state: { meta, templateSessionId: session.id }
-      });
+      if (data.completed) {
+        navigate(`/student/viva/report/${data.sessionId}`);
+      } else {
+        // Navigate to exam with the student's own session id
+        navigate(`/student/viva/${data.sessionId}`, {
+          state: { meta, templateSessionId: session.id }
+        });
+      }
     } catch (err) {
       const msg = err?.response?.data?.error || 'Failed to join session';
       toast({ type: 'error', title: 'Cannot Join', message: msg });

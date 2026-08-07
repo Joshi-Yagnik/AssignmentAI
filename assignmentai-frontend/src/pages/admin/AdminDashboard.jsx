@@ -156,10 +156,10 @@ export default function AdminDashboard() {
                 <StatusBadge status="active" label="v2.3.1 ACTIVE" />
               </div>
               {[
-                ['Graded Today',   '847 submissions'],
-                ['Queue',          '23 pending'],
-                ['Avg. Time',      '2.3 sec / sub'],
-                ['Accuracy',       '94.7%'],
+                ['Graded Today',   `${stats.overview.aiGradedToday || 0} submissions`],
+                ['Queue',          `${stats.overview.aiQueue || 0} pending`],
+                ['Avg. Time',      `${stats.overview.aiAvgTime || 2.3} sec / sub`],
+                ['Accuracy',       `${stats.overview.aiAccuracy}%`],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between text-label-md border-b border-border pb-2 last:border-0 last:pb-0">
                   <span className="text-ink-muted">{k}</span>
@@ -169,10 +169,10 @@ export default function AdminDashboard() {
               {/* Mini accuracy bar */}
               <div>
                 <div className="flex justify-between text-label-sm text-ink-muted mb-1">
-                  <span>Accuracy Trend</span><span>94.7%</span>
+                  <span>Accuracy Trend</span><span>{stats.overview.aiAccuracy}%</span>
                 </div>
                 <div className="h-1.5 bg-surface-high rounded-full overflow-hidden">
-                  <div className="h-full bg-indigo-gradient rounded-full" style={{ width: '94.7%' }} />
+                  <div className="h-full bg-indigo-gradient rounded-full" style={{ width: `${stats.overview.aiAccuracy}%` }} />
                 </div>
               </div>
             </div>

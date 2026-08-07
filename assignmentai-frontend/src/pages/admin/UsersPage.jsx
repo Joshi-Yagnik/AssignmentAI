@@ -61,8 +61,9 @@ export default function UsersPage() {
       setUsers(usersData);
       setDepartments(depsData);
       setClassMetadata(classesData);
-    } catch {
-      toast({ type: 'error', title: 'Failed to load users' });
+    } catch (err) {
+      const msg = err.response?.data?.error || err.message || 'Unknown error';
+      toast({ type: 'error', title: `Failed to load users: ${msg}` });
     } finally {
       setLoading(false);
     }
@@ -204,13 +205,14 @@ export default function UsersPage() {
     all:     users.length,
     teacher: users.filter(u => u.role === 'teacher').length,
     student: users.filter(u => u.role === 'student').length,
+    ta:      users.filter(u => u.role === 'ta').length,
   };
 
   return (
     <>
       <TopBar
         title="Users"
-        subtitle="Manage teachers and students across all institutes"
+        subtitle="Manage teachers, students, and TAs across all institutes"
         actions={
           <div className="flex items-center gap-2">
             <button className="btn btn-ghost btn-sm flex items-center gap-2" onClick={openUpload}>
@@ -236,7 +238,7 @@ export default function UsersPage() {
             />
           </div>
           <div className="flex items-center gap-1 bg-surface-low border border-border rounded-lg p-1">
-            {['all', 'teacher', 'student'].map(r => (
+            {['all', 'teacher', 'student', 'ta'].map(r => (
               <button
                 key={r}
                 onClick={() => setRoleFilter(r)}
@@ -246,8 +248,8 @@ export default function UsersPage() {
                     : 'text-ink-muted hover:text-ink-secondary'
                 }`}
               >
-                {r === 'all' ? 'All' : r.charAt(0).toUpperCase() + r.slice(1) + 's'}
-                <span className="ml-1.5 text-xs bg-surface-high text-ink-muted px-1.5 py-0.5 rounded-full">
+                {r === 'all' ? 'All' : r === 'ta' ? 'TAs' : r.charAt(0).toUpperCase() + r.slice(1) + 's'}
+                <span className="ml-1.5 px-1.5 py-0.5 bg-ink-primary/5 text-[10px] rounded-md font-mono">
                   {counts[r]}
                 </span>
               </button>

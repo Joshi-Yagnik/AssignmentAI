@@ -119,7 +119,7 @@ router.get('/', requireAuth, requireRole(['admin', 'teacher']), async (req, res)
     if (role && role !== 'all') {
       query = query.eq('role', role);
     } else {
-      query = query.in('role', ['teacher', 'student']);
+      query = query.in('role', ['teacher', 'student', 'ta']);
     }
 
     const { data, error } = await query;

@@ -4,7 +4,7 @@ import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
 import api from '../../services/api';
 import { getMetadataClasses } from '../../services/adminService';
-import { Video, Plus, Calendar, Clock, MonitorPlay, Users, X, Bot, BarChart2 } from 'lucide-react';
+import { Video, Plus, Calendar, Clock, MonitorPlay, Users, X, Bot, BarChart2, Trash2 } from 'lucide-react';
 
 export default function TeacherVivaPage() {
   const toast = useToast();
@@ -98,6 +98,17 @@ export default function TeacherVivaPage() {
     }
   };
 
+  const handleDelete = async (id, title) => {
+    if (!window.confirm(`Are you sure you want to delete the session "${title}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/viva/sessions/${id}`);
+      toast({ type: 'success', title: 'Session deleted' });
+      load();
+    } catch {
+      toast({ type: 'error', title: 'Failed to delete session' });
+    }
+  };
+
   const handleStart = async (id) => {
     try {
       await api.patch(`/viva/sessions/${id}/status`, { status: 'live' });
@@ -186,6 +197,13 @@ export default function TeacherVivaPage() {
                       title="Grading Queue (AI + TA)"
                     >
                       <BarChart2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(s.id, meta.title)}
+                      className="btn btn-ghost btn-sm text-danger hover:bg-danger/10"
+                      title="Delete Session"
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>

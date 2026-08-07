@@ -61,8 +61,13 @@ export default function VivaReportPage() {
   if (!session) return <div className="p-10 text-center text-ink-muted">Session not found.</div>;
 
   const report = session.ai_report || {};
-  let messages = [];
-  try { messages = JSON.parse(session.transcript || '[]'); } catch { }
+  let messages = report.transcript || [];
+  if (!messages.length) {
+    try { 
+      const parsed = JSON.parse(session.transcript || '[]'); 
+      if (Array.isArray(parsed)) messages = parsed;
+    } catch { }
+  }
 
   return (
     <>

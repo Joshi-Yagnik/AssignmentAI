@@ -46,6 +46,22 @@ router.get('/sessions', requireAuth, async (req, res) => {
       // Template rows: no _parent_session_id in transcript.
       // Student participation rows: have _parent_session_id in transcript.
       // We only want to show template rows in the lobby.
+      
+      // 1. Fetch student's class_name and lab_batch
+      const { data: stUser } = await supabaseAdmin.from('users').select('class_name, lab_batch').eq('id', userId).single();
+      const stClass = stUser?.class_name || null;
+      const stBatch = stUser?.lab_batch || null;
+
+      // 2. Fetch valid exam sessions for this student
+      let examQuery = supabaseAdmin.from('viva_exam_sessions').select('title, teacher_id, class_name, lab_batch');
+      const { data: validExams } = await examQuery;
+      
+      const allowedExams = (validExams || []).filter(ex => {
+        const classMatch = !ex.class_name || ex.class_name === stClass;
+        const batchMatch = !ex.lab_batch || ex.lab_batch === stBatch;
+        return classMatch && batchMatch;
+      });
+
       const { data: allNullSubRows, error: e1 } = await supabaseAdmin
         .from('viva_sessions')
         .select(`
@@ -58,16 +74,49 @@ router.get('/sessions', requireAuth, async (req, res) => {
         .order('scheduled_time', { ascending: false });
       if (e1) throw e1;
 
-      // Filter: keep only "template" rows (those without _parent_session_id in transcript)
-      const templateRows = (allNullSubRows || []).filter(row => {
+      // Filter: keep only "template" rows and find student participation rows
+      let templateRows = [];
+      const studentRows = [];
+      (allNullSubRows || []).forEach(row => {
         try {
           const m = JSON.parse(row.transcript || '{}');
-          // Template rows don't have _parent_session_id; student participation rows do
-          return !m._parent_session_id;
-        } catch { return true; }
+          if (!m._parent_session_id) {
+            templateRows.push(row);
+          } else if (row.student_id === userId) {
+            studentRows.push(row);
+          }
+        } catch { templateRows.push(row); } // Fallback
       });
 
-      res.json(templateRows);
+      // Filter templates to only those allowed by exam sessions (class/batch matching)
+      templateRows = templateRows.filter(template => {
+        try {
+          const title = JSON.parse(template.transcript || '{}').title;
+          return allowedExams.some(ex => ex.teacher_id === template.teacher_id && ex.title === title);
+        } catch { return true; } // fallback allow if parse fails
+      });
+
+      // Map template rows to override their status if the student has a personal row for it
+      const personalizedTemplateRows = templateRows.map(template => {
+        const pRow = studentRows.find(sr => {
+          try {
+            return JSON.parse(sr.transcript || '{}')._parent_session_id === template.id;
+          } catch { return false; }
+        });
+        
+        if (pRow) {
+          // If the student has already completed it, mark the template as completed for this student
+          // so the lobby disables the join button and the dashboard doesn't show it as upcoming
+          return {
+            ...template,
+            status: pRow.status === 'completed' ? 'completed' : template.status,
+            student_session_id: pRow.id
+          };
+        }
+        return template;
+      });
+
+      res.json(personalizedTemplateRows);
     } else {
       // admin sees all
       const { data, error } = await supabaseAdmin
@@ -301,13 +350,37 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
     const { id: sessionId } = req.params;
 
     // Get session details (for score_policy, lab_batch, class_name)
-    const { data: session, error: sErr } = await supabaseAdmin
+    let { data: session, error: sErr } = await supabaseAdmin
       .from('viva_exam_sessions')
       .select('id, title, status, score_policy, lab_batch, class_name, ta_id, scheduled_at')
       .eq('id', sessionId)
-      .single();
+      .maybeSingle();
 
-    if (sErr || !session) return res.status(404).json({ error: 'Session not found' });
+    if (!session) {
+      // Fallback: TeacherVivaPage passes viva_sessions ID instead of viva_exam_sessions ID.
+      // Lookup the corresponding viva_exam_sessions row using teacher_id and title from transcript.
+      const { data: legacySession } = await supabaseAdmin.from('viva_sessions').select('transcript, teacher_id').eq('id', sessionId).maybeSingle();
+      if (legacySession) {
+        let legacyTitle = '';
+        try {
+          const meta = JSON.parse(legacySession.transcript || '{}');
+          legacyTitle = meta.title;
+        } catch(e){}
+        
+        if (legacyTitle) {
+          const { data: examSession } = await supabaseAdmin.from('viva_exam_sessions')
+            .select('id, title, status, score_policy, lab_batch, class_name, ta_id, scheduled_at')
+            .eq('title', legacyTitle)
+            .eq('teacher_id', legacySession.teacher_id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          session = examSession;
+        }
+      }
+    }
+
+    if (!session) return res.status(404).json({ error: 'Session not found' });
 
     // Get all students in this session's lab_batch/class
     let studentQuery = supabaseAdmin.from('users')
@@ -456,6 +529,41 @@ router.patch('/sessions/:id/status', requireAuth, requireRole(['teacher', 'admin
   }
 });
 
+// ─── DELETE viva session ─────────────────────────────────────────────────────
+router.delete('/sessions/:id', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // We can fetch the session title before deleting, so we can also try to delete the matched viva_exam_sessions row
+    const { data: legacySession } = await supabaseAdmin.from('viva_sessions').select('transcript, teacher_id').eq('id', id).maybeSingle();
+
+    // Delete from viva_sessions
+    const { error } = await supabaseAdmin
+      .from('viva_sessions')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+
+    // Try to delete corresponding viva_exam_sessions row if possible
+    if (legacySession) {
+      try {
+        const meta = JSON.parse(legacySession.transcript || '{}');
+        if (meta.title) {
+          await supabaseAdmin.from('viva_exam_sessions')
+            .delete()
+            .eq('title', meta.title)
+            .eq('teacher_id', legacySession.teacher_id);
+        }
+      } catch (e) {}
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Viva DELETE /sessions/:id]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST student joins a class-wide viva session ────────────────────────────
 // Creates a participation row for this student that references the template session
 // via a _parent_session_id marker in the transcript JSON (avoids FK issues).
@@ -494,6 +602,9 @@ router.post('/sessions/:id/join', requireAuth, requireRole(['student']), async (
         } catch { return false; }
       });
       if (alreadyJoined) {
+        if (alreadyJoined.status === 'completed') {
+          return res.json({ sessionId: alreadyJoined.id, alreadyJoined: true, completed: true });
+        }
         return res.json({ sessionId: alreadyJoined.id, alreadyJoined: true });
       }
     }
@@ -651,6 +762,9 @@ router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), asy
     } catch (e) {}
 
     const report = await evaluateVivaSession(session.subject, session.topic, transcriptMessages, assignmentContext);
+    
+    // Attach the actual chat transcript to the report so the student can view it
+    report.transcript = transcriptMessages;
 
     // Save report to DB and mark ended
     const { data: updated, error: updateErr } = await supabaseAdmin
