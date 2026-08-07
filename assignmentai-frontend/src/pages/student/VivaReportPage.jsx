@@ -67,7 +67,7 @@ export default function VivaReportPage() {
   return (
     <>
       <div className="print:hidden">
-        <TopBar title="AI Viva Report" subtitle={`${session.subject} — ${session.topic}`} />
+        <TopBar title="AI Viva Report" subtitle={`${session.subject || 'Viva'} — ${session.topic || 'Report'}`} />
       </div>
       
       <main className="p-4 md:p-6 max-w-5xl mx-auto w-full flex flex-col gap-6 print:p-0 print:gap-4 print:max-w-none">

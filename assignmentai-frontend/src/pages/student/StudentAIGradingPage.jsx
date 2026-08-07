@@ -63,7 +63,8 @@ export default function StudentAIGradingPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {submissions.map(sub => {
               const a = sub.assignments;
-              const isGraded = sub.status === 'graded' || (!!sub.ai_reports);
+              const aiReport = Array.isArray(sub.ai_reports) ? sub.ai_reports[0] : sub.ai_reports;
+              const isGraded = sub.status === 'graded' || (!!aiReport && Object.keys(aiReport).length > 0);
               
               return (
                 <div key={sub.id} className="card flex flex-col gap-3 hover:shadow-md transition-shadow">
