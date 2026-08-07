@@ -4,7 +4,7 @@ import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
 import api from '../../services/api';
 import io from 'socket.io-client';
-import { Users, AlertTriangle, VideoOff, MessageSquare, Clock } from 'lucide-react';
+import { Users, AlertTriangle, VideoOff, MessageSquare, Clock, Edit2 } from 'lucide-react';
 
 const SOCKET_URL = import.meta.env.VITE_API_BASE_URL 
   ? import.meta.env.VITE_API_BASE_URL.replace('/api', '') 
@@ -20,10 +20,39 @@ export default function TeacherVivaMonitorPage() {
   const [activeStudents, setActiveStudents] = useState({});
   const socketRef = useRef(null);
 
+  const [editingReport, setEditingReport] = useState(null); // { studentId, dbId, reportData }
+
   useEffect(() => {
+    // 1. Fetch master session
     api.get(`/viva/sessions/${sessionId}`)
       .then(({ data }) => setSession(data))
       .catch(() => navigate('/teacher/viva'));
+
+    // 2. Fetch all historical student rows
+    api.get(`/viva/sessions/${sessionId}/students`)
+      .then(({ data }) => {
+        if (!data || !Array.isArray(data)) return;
+        setActiveStudents(prev => {
+          const next = { ...prev };
+          data.forEach(stRow => {
+            const key = stRow.id; 
+            if (!next[key]) {
+              next[key] = {
+                socketId: key,
+                dbId: stRow.id,
+                name: stRow.users?.first_name ? `${stRow.users.first_name} ${stRow.users.last_name}` : 'Unknown',
+                transcript: '[]', // historical transcripts are not strictly saved here in full array in standard format, but wait, are they? Actually, they aren't saved in the same format unless it's in the AI report.
+                warnings: stRow.warnings_count || 0,
+                status: stRow.status,
+                ai_report: stRow.ai_report,
+                lastActive: stRow.scheduled_time
+              };
+            }
+          });
+          return next;
+        });
+      })
+      .catch(console.error);
   }, [sessionId, navigate]);
 
   useEffect(() => {
@@ -48,20 +77,36 @@ export default function TeacherVivaMonitorPage() {
       toast({ type: 'info', title: 'Student Joined', message: `${data.studentName || 'A student'} has joined the session.` });
     });
 
-    // Live transcript update — keyed by socketId
-    socketRef.current.on('teacher_transcript_live', (data) => {
-      const key = data.socketId || data.sessionId;
-      setActiveStudents(prev => ({
-        ...prev,
-        [key]: {
-          ...prev[key],
-          socketId: key,
-          name: data.studentName || prev[key]?.name || `Student (${key.slice(0, 6)})`,
-          transcript: data.transcript,
-          lastActive: new Date(),
-        }
-      }));
-    });
+      // Live transcript update (submitted answers) — keyed by socketId
+      socketRef.current.on('teacher_transcript_live', (data) => {
+        const key = data.socketId || data.sessionId;
+        setActiveStudents(prev => ({
+          ...prev,
+          [key]: {
+            ...prev[key],
+            socketId: key,
+            name: data.studentName || prev[key]?.name || `Student (${key.slice(0, 6)})`,
+            transcript: data.transcript,
+            liveDraft: '', // clear draft on submit
+            lastActive: new Date(),
+          }
+        }));
+      });
+  
+      // Live draft update (typing/speaking) — keyed by socketId
+      socketRef.current.on('teacher_transcript_live_draft', (data) => {
+        const key = data.socketId || data.sessionId;
+        setActiveStudents(prev => ({
+          ...prev,
+          [key]: {
+            ...prev[key],
+            socketId: key,
+            name: data.studentName || prev[key]?.name || `Student (${key.slice(0, 6)})`,
+            liveDraft: data.draft,
+            lastActive: new Date(),
+          }
+        }));
+      });
 
     // Security warning — keyed by socketId
     socketRef.current.on('teacher_viva_warning', (data) => {
@@ -105,9 +150,46 @@ export default function TeacherVivaMonitorPage() {
     try {
       await api.patch(`/viva/sessions/${sessionId}/status`, { status: 'ended' });
       toast({ type: 'success', title: 'Session Ended' });
-      navigate('/teacher/viva');
+      setSession(prev => ({ ...prev, status: 'completed' }));
     } catch {
       toast({ type: 'error', title: 'Failed to end session' });
+    }
+  };
+
+  const handleRestartSession = async () => {
+    if (!window.confirm("Restart this session?")) return;
+    try {
+      await api.patch(`/viva/sessions/${sessionId}/status`, { status: 'scheduled' });
+      toast({ type: 'success', title: 'Session Restarted' });
+      setSession(prev => ({ ...prev, status: 'scheduled' }));
+    } catch {
+      toast({ type: 'error', title: 'Failed to restart session' });
+    }
+  };
+
+  const handleSaveReport = async () => {
+    if (!editingReport) return;
+    try {
+      const updatedReport = {
+        ...editingReport.reportData,
+        overall_score: parseFloat(editingReport.overall_score),
+        subject_knowledge_score: parseFloat(editingReport.subject_knowledge_score),
+        ai_feedback: editingReport.ai_feedback,
+      };
+      
+      const { data } = await api.patch(`/viva/sessions/${editingReport.dbId}/report`, { ai_report: updatedReport });
+      toast({ type: 'success', title: 'Report Updated' });
+      
+      setActiveStudents(prev => ({
+        ...prev,
+        [editingReport.studentId]: {
+          ...prev[editingReport.studentId],
+          ai_report: data.ai_report
+        }
+      }));
+      setEditingReport(null);
+    } catch {
+      toast({ type: 'error', title: 'Failed to update report' });
     }
   };
 
@@ -123,15 +205,22 @@ export default function TeacherVivaMonitorPage() {
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-2 px-3 py-1.5 bg-danger/10 text-danger rounded-lg font-bold text-sm">
-              <span className="w-2 h-2 rounded-full bg-danger animate-pulse" /> LIVE
+              <span className={`w-2 h-2 rounded-full bg-danger ${session?.status !== 'completed' ? 'animate-pulse' : ''}`} /> 
+              {session?.status === 'completed' ? 'ENDED' : 'LIVE'}
             </span>
             <span className="text-ink-muted flex items-center gap-2 text-sm">
               <Users className="w-4 h-4" /> {connectedCount} Connected
             </span>
           </div>
-          <button onClick={handleEndSession} className="btn-primary bg-danger border-none hover:bg-danger/90 flex items-center gap-2">
-            <VideoOff className="w-4 h-4" /> End Session For All
-          </button>
+          {session?.status === 'completed' ? (
+            <button onClick={handleRestartSession} className="btn-primary bg-success border-none hover:bg-success/90 flex items-center gap-2">
+              <VideoOff className="w-4 h-4" /> Restart Session
+            </button>
+          ) : (
+            <button onClick={handleEndSession} className="btn-primary bg-danger border-none hover:bg-danger/90 flex items-center gap-2">
+              <VideoOff className="w-4 h-4" /> End Session For All
+            </button>
+          )}
         </div>
 
         {studentsList.length === 0 ? (
@@ -195,19 +284,89 @@ export default function TeacherVivaMonitorPage() {
                         return <p className="text-sm text-ink-primary">{st.transcript}</p>;
                       }
                     })()}
+                    
+                    {st.liveDraft && st.liveDraft.trim().length > 0 && st.status !== 'ended' && (
+                      <div className="flex flex-col mb-1 animate-pulse">
+                        <span className="text-[10px] font-bold text-ink-muted uppercase">Student (Typing/Speaking...)</span>
+                        <span className="text-xs p-1.5 rounded bg-surface-high text-ink-muted italic border border-dashed border-border">
+                          {st.liveDraft}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {st.lastActive && (
-                  <p className="text-xs text-ink-muted flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> Last active: {new Date(st.lastActive).toLocaleTimeString()}
-                  </p>
+                  <div className="flex justify-between items-center mt-2">
+                    <p className="text-xs text-ink-muted flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> Last active: {new Date(st.lastActive).toLocaleTimeString()}
+                    </p>
+                    {st.status === 'ended' && st.dbId && (
+                      <button 
+                        onClick={() => setEditingReport({
+                          studentId: st.socketId,
+                          dbId: st.dbId,
+                          reportData: st.ai_report || {},
+                          overall_score: st.ai_report?.overall_score || 0,
+                          subject_knowledge_score: st.ai_report?.subject_knowledge_score || 0,
+                          ai_feedback: st.ai_report?.ai_feedback || ''
+                        })}
+                        className="btn-outline-primary btn-sm px-2 py-1 text-xs flex items-center gap-1"
+                      >
+                        <Edit2 className="w-3 h-3" /> Edit Report
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             ))}
           </div>
         )}
       </main>
+
+      {/* Edit Report Modal */}
+      {editingReport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/40 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-border flex justify-between items-center bg-surface-low">
+              <h3 className="font-bold text-ink-primary">Edit AI Report</h3>
+              <button onClick={() => setEditingReport(null)} className="text-ink-muted hover:text-ink-primary">&times;</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold mb-1">Overall Score (0-100)</label>
+                <input 
+                  type="number" 
+                  className="input-field" 
+                  value={editingReport.overall_score} 
+                  onChange={e => setEditingReport({ ...editingReport, overall_score: e.target.value })} 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1">Subject Knowledge Score (0-10)</label>
+                <input 
+                  type="number" 
+                  className="input-field" 
+                  value={editingReport.subject_knowledge_score} 
+                  onChange={e => setEditingReport({ ...editingReport, subject_knowledge_score: e.target.value })} 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1">Feedback</label>
+                <textarea 
+                  className="input-field min-h-[120px]" 
+                  value={editingReport.ai_feedback} 
+                  onChange={e => setEditingReport({ ...editingReport, ai_feedback: e.target.value })} 
+                />
+              </div>
+            </div>
+            <div className="p-4 bg-surface-low border-t border-border flex justify-end gap-3">
+              <button onClick={() => setEditingReport(null)} className="btn-secondary">Cancel</button>
+              <button onClick={handleSaveReport} className="btn-primary">Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

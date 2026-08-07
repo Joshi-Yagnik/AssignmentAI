@@ -5,7 +5,7 @@ const { requireAuth, requireRole } = require('../middleware/auth.middleware');
 const socketManager = require('../sockets/socketManager');
 const { gradingQueue }   = require('../queues/gradingQueue');
 const { gradeSubmission } = require('../services/gradingService');
-const { createNotification } = require('../services/notificationService');
+const { createNotification, notifyAdmins } = require('../services/notificationService');
 
 // ─────────────────────────────────────────────────────────────
 // HELPER: Get all assignment IDs created by a teacher
@@ -363,6 +363,13 @@ router.post('/', requireAuth, requireRole(['student']), async (req, res) => {
         'info'
       );
     }
+
+    // Admin notification
+    notifyAdmins(
+      'New Submission',
+      `${studentName} submitted "${assignTitle}".`,
+      'info'
+    );
 
     // ── Emit new submission socket event to teacher ───────────────────────
     try {

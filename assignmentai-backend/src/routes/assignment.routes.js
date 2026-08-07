@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../config/supabaseClient');
 const { requireAuth, requireRole } = require('../middleware/auth.middleware');
+const { notifyAdmins, notifyStudents } = require('../services/notificationService');
 
 const teacherOrAdmin = [requireAuth, requireRole(['teacher', 'admin'])];
 const adminOnly = [requireAuth, requireRole(['admin'])];
@@ -146,6 +147,20 @@ router.post('/', ...teacherOrAdmin, async (req, res) => {
       .single();
 
     if (error) throw error;
+
+    // Send notifications
+    const authorName = req.user.first_name ? `${req.user.first_name} ${req.user.last_name}` : 'A teacher';
+    notifyStudents(
+      'New Assignment Uploaded', 
+      `${authorName} uploaded a new assignment: "${title}"`, 
+      'info'
+    );
+    notifyAdmins(
+      'New Assignment Created', 
+      `${authorName} created a new assignment: "${title}" for subject ID: ${subject_id}`, 
+      'info'
+    );
+
     res.status(201).json(data);
   } catch (err) {
     console.error(err);

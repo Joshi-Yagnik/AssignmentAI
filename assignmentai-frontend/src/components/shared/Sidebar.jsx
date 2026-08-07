@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard, ClipboardList, Bot, Video,
   Users, BarChart3, Settings, LogOut,
-  BookOpen, Inbox, ShieldCheck, Bell, X, FileText
+  BookOpen, Inbox, ShieldCheck, Bell, X, FileText, Building2, Network, Library
 } from 'lucide-react';
 
 // ── Avatar chip ──────────────────────────────────────────────────────────────
@@ -42,6 +42,9 @@ const NAV = {
   admin: [
     { label: 'System Overview', to: '/admin',              icon: LayoutDashboard },
     { label: 'Users & Roles',   to: '/admin/users',        icon: Users           },
+    { label: 'Institutes',      to: '/admin/institutes',   icon: Building2       },
+    { label: 'Departments',     to: '/admin/departments',  icon: Network         },
+    { label: 'Subjects',        to: '/admin/subjects',     icon: Library         },
     { label: 'Courses',         to: '/admin/courses',      icon: BookOpen        },
     { label: 'AI Engine',       to: '/admin/ai-engine',    icon: Bot             },
     { label: 'Viva Control',    to: '/admin/viva',         icon: Video           },

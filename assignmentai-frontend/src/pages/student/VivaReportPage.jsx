@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
 import api from '../../services/api';
-import { Award, BrainCircuit, MessageSquare, Volume2, ShieldCheck, CheckCircle, XCircle, ArrowRight } from 'lucide-react';
+import { Award, BrainCircuit, MessageSquare, Volume2, ShieldCheck, CheckCircle, XCircle, ArrowRight, Download } from 'lucide-react';
 
 function ScoreRing({ score, label, colorClass, icon: Icon }) {
   const percentage = Math.min(100, Math.max(0, score || 0));
@@ -66,12 +66,23 @@ export default function VivaReportPage() {
 
   return (
     <>
-      <TopBar title="AI Viva Report" subtitle={`${session.subject} — ${session.topic}`} />
+      <div className="print:hidden">
+        <TopBar title="AI Viva Report" subtitle={`${session.subject} — ${session.topic}`} />
+      </div>
       
-      <main className="p-4 md:p-6 max-w-5xl mx-auto w-full flex flex-col gap-6">
+      <main className="p-4 md:p-6 max-w-5xl mx-auto w-full flex flex-col gap-6 print:p-0 print:gap-4 print:max-w-none">
         
+        <div className="print:hidden flex justify-end">
+          <button 
+            onClick={() => window.print()} 
+            className="btn-primary flex items-center gap-2"
+          >
+            <Download className="w-4 h-4" /> Download PDF Report
+          </button>
+        </div>
+
         {/* Header Summary */}
-        <div className="card bg-gradient-to-br from-primary-950 to-primary-900 text-white border-none shadow-xl flex flex-col md:flex-row items-center justify-between p-6 md:p-8 gap-6">
+        <div className="card bg-gradient-to-br from-primary-950 to-primary-900 text-white border-none shadow-xl flex flex-col md:flex-row items-center justify-between p-6 md:p-8 gap-6 print:shadow-none print:break-inside-avoid">
           <div className="flex-1">
             <h1 className="text-3xl font-bold mb-2 flex items-center gap-3">
               <Award className="w-8 h-8 text-primary-300" /> 
@@ -158,7 +169,7 @@ export default function VivaReportPage() {
               messages.map((m, i) => (
                 <div key={i} className={`flex flex-col ${m.role === 'ai' ? 'items-start' : 'items-end'}`}>
                   <span className="text-xs font-bold text-ink-muted uppercase mb-1 ml-1 mr-1">{m.role === 'ai' ? 'AI Examiner' : 'Student'}</span>
-                  <div className={`text-sm p-4 rounded-2xl max-w-[85%] ${m.role === 'ai' ? 'bg-surface-high text-ink-primary rounded-tl-sm' : 'bg-primary-50 text-primary-900 rounded-tr-sm border border-primary/10'}`}>
+                  <div className={`text-sm p-4 rounded-2xl max-w-[85%] ${m.role === 'ai' ? 'bg-surface-high text-ink-primary rounded-tl-sm print:bg-gray-100' : 'bg-primary-50 text-primary-900 rounded-tr-sm border border-primary/10 print:bg-blue-50'}`}>
                     {m.content}
                   </div>
                 </div>

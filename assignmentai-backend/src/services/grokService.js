@@ -56,7 +56,7 @@ Return ONLY a JSON object with two keys:
 /**
  * Dynamically generate the next question based on the conversation history.
  */
-async function generateNextVivaQuestion(subject, topic, difficulty, transcriptMessages, currentQuestionCount, totalQuestions) {
+async function generateNextVivaQuestion(subject, topic, difficulty, transcriptMessages, currentQuestionCount, totalQuestions, assignmentContext = null) {
   if (!GROK_API_KEY) {
     return {
       evaluation_of_last_answer: "Mock evaluation (no API key).",
@@ -65,12 +65,16 @@ async function generateNextVivaQuestion(subject, topic, difficulty, transcriptMe
     };
   }
 
+  const assignmentSection = assignmentContext 
+    ? `\nAssignment Title: ${assignmentContext.title}\nAssignment Instructions/Content:\n${assignmentContext.instructions || 'No explicit instructions provided. Base questions on the title and topic.'}\n\nCRITICAL INSTRUCTION: You MUST base your questions strictly on the provided Assignment Content. Evaluate the student's answers by matching them against the expected answers or concepts from this specific assignment.`
+    : '';
+
   const prompt = `
 You are an expert academic examiner conducting a viva (oral exam) for a student.
 Subject: ${subject}
 Topic: ${topic}
 Target Difficulty Level: ${difficulty}
-Current Question Progress: ${currentQuestionCount} out of ${totalQuestions}
+Current Question Progress: ${currentQuestionCount} out of ${totalQuestions}${assignmentSection}
 
 Here is the conversation history so far:
 ${JSON.stringify(transcriptMessages, null, 2)}
@@ -119,7 +123,7 @@ Return ONLY a JSON object with these exact keys:
 /**
  * Generate a comprehensive final evaluation report for the entire viva session.
  */
-async function evaluateVivaSession(subject, topic, transcriptMessages) {
+async function evaluateVivaSession(subject, topic, transcriptMessages, assignmentContext = null) {
   if (!GROK_API_KEY) {
     return {
       overall_score: 80,
@@ -135,10 +139,14 @@ async function evaluateVivaSession(subject, topic, transcriptMessages) {
     };
   }
 
+  const assignmentSection = assignmentContext 
+    ? `\nAssignment Title: ${assignmentContext.title}\nAssignment Instructions/Content:\n${assignmentContext.instructions || 'No explicit instructions.'}\n\nCRITICAL INSTRUCTION: Evaluate the student based strictly on how accurately their verbal answers match the expected answers/concepts from the provided Assignment Content.`
+    : '';
+
   const prompt = `
 You are an expert academic examiner. The viva examination has concluded.
 Subject: ${subject}
-Topic: ${topic}
+Topic: ${topic}${assignmentSection}
 
 Conversation Transcript:
 ${JSON.stringify(transcriptMessages, null, 2)}

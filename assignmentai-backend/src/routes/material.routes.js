@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../config/supabaseClient');
 const { requireAuth, requireRole } = require('../middleware/auth.middleware');
+const { notifyAdmins, notifyStudents } = require('../services/notificationService');
 
 const teacherOnly = [requireAuth, requireRole(['teacher'])];
 
@@ -41,6 +42,19 @@ router.post('/', ...teacherOnly, async (req, res) => {
     if (io) {
       io.emit('new_study_material', data);
     }
+
+    // Send notifications
+    const authorName = req.user.first_name ? `${req.user.first_name} ${req.user.last_name}` : 'A teacher';
+    notifyStudents(
+      'New Study Material Uploaded', 
+      `${authorName} uploaded new material: "${title}"`, 
+      'info'
+    );
+    notifyAdmins(
+      'New Study Material Uploaded', 
+      `${authorName} uploaded new material: "${title}" for subject ID: ${subject_id}`, 
+      'info'
+    );
 
     res.status(201).json(data);
   } catch (err) {

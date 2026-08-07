@@ -11,9 +11,12 @@ export default function TeacherVivaPage() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   
+  const [assignments, setAssignments] = useState([]);
+  
   // Modal state
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({
+    assignment_id: '',
     subject: '',
     topic: '',
     difficulty: 'medium',
@@ -27,6 +30,9 @@ export default function TeacherVivaPage() {
       setLoading(true);
       const { data } = await api.get('/viva/sessions');
       setSessions(data || []);
+
+      const { data: asmts } = await api.get('/assignments');
+      setAssignments(asmts || []);
     } catch {
       toast({ type: 'error', title: 'Failed to load sessions' });
     } finally {
@@ -38,17 +44,31 @@ export default function TeacherVivaPage() {
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!form.subject || !form.topic) return;
+    if (!form.assignment_id && (!form.subject || !form.topic)) return;
     
     setCreating(true);
     try {
+      let title = '';
+      let subject = form.subject;
+      let topic = form.topic;
+
+      if (form.assignment_id) {
+        const selected = assignments.find(a => a.id === form.assignment_id);
+        title = `Viva for ${selected?.title}`;
+        subject = selected?.subjects?.name || 'Assignment';
+        topic = selected?.title || 'General';
+      } else {
+        title = `${form.subject} — ${form.topic}`;
+      }
+
       await api.post('/viva/sessions', {
-        title: `${form.subject} — ${form.topic}`,
+        title,
         duration_minutes: form.duration_minutes,
-        subject: form.subject,
-        topic: form.topic,
+        subject,
+        topic,
         difficulty: form.difficulty,
-        total_questions: form.total_questions
+        total_questions: form.total_questions,
+        assignment_id: form.assignment_id || null
       });
       toast({ type: 'success', title: 'AI Viva Session Created' });
       setShowModal(false);
@@ -67,6 +87,17 @@ export default function TeacherVivaPage() {
       load();
     } catch {
       toast({ type: 'error', title: 'Failed to start session' });
+    }
+  };
+
+  const handleRestart = async (id) => {
+    if (!window.confirm("Are you sure you want to restart this session? It will become 'scheduled' again.")) return;
+    try {
+      await api.patch(`/viva/sessions/${id}/status`, { status: 'scheduled' });
+      toast({ type: 'success', title: 'Session restarted' });
+      load();
+    } catch {
+      toast({ type: 'error', title: 'Failed to restart session' });
     }
   };
 
@@ -122,9 +153,14 @@ export default function TeacherVivaPage() {
                       </button>
                     )}
                     {s.status === 'completed' && (
-                      <button onClick={() => navigate(`/teacher/viva/monitor/${s.id}`)} className="btn-secondary btn-sm flex-1 flex items-center justify-center gap-2">
-                        View Reports
-                      </button>
+                      <>
+                        <button onClick={() => navigate(`/teacher/viva/monitor/${s.id}`)} className="btn-secondary btn-sm flex-1 flex items-center justify-center gap-2">
+                          View Reports
+                        </button>
+                        <button onClick={() => handleRestart(s.id)} className="btn-outline-primary btn-sm flex-1">
+                          Restart
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -148,29 +184,48 @@ export default function TeacherVivaPage() {
             </div>
             
             <form onSubmit={handleCreate} className="p-5 flex flex-col gap-4 overflow-y-auto max-h-[80vh]">
-              <div>
-                <label className="label">Subject</label>
-                <input 
-                  type="text" 
-                  className="input" 
-                  placeholder="e.g. Computer Science"
-                  required
-                  value={form.subject}
-                  onChange={e => setForm({...form, subject: e.target.value})}
-                />
+              <div className="bg-primary/5 p-3 rounded-lg border border-primary/20 mb-2">
+                <label className="label text-primary-700">Link to Assignment (Recommended)</label>
+                <select 
+                  className="input"
+                  value={form.assignment_id}
+                  onChange={e => setForm({...form, assignment_id: e.target.value})}
+                >
+                  <option value="">-- No Assignment (Custom Topic) --</option>
+                  {assignments.map(a => (
+                    <option key={a.id} value={a.id}>{a.title} ({a.subjects?.code || 'N/A'})</option>
+                  ))}
+                </select>
+                <p className="text-xs text-ink-muted mt-1">If selected, the AI will ask questions strictly based on the assignment's instructions.</p>
               </div>
-              
-              <div>
-                <label className="label">Topic to examine</label>
-                <input 
-                  type="text" 
-                  className="input" 
-                  placeholder="e.g. Data Structures and Trees"
-                  required
-                  value={form.topic}
-                  onChange={e => setForm({...form, topic: e.target.value})}
-                />
-              </div>
+
+              {!form.assignment_id && (
+                <>
+                  <div>
+                    <label className="label">Subject</label>
+                    <input 
+                      type="text" 
+                      className="input" 
+                      placeholder="e.g. Computer Science"
+                      required={!form.assignment_id}
+                      value={form.subject}
+                      onChange={e => setForm({...form, subject: e.target.value})}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="label">Topic to examine</label>
+                    <input 
+                      type="text" 
+                      className="input" 
+                      placeholder="e.g. Data Structures and Trees"
+                      required={!form.assignment_id}
+                      value={form.topic}
+                      onChange={e => setForm({...form, topic: e.target.value})}
+                    />
+                  </div>
+                </>
+              )}
               
               <div className="grid grid-cols-2 gap-4">
                 <div>

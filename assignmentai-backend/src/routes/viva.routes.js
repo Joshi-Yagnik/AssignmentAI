@@ -131,15 +131,83 @@ router.get('/sessions/:id', requireAuth, async (req, res) => {
   }
 });
 
+// ─── GET students who participated in a viva session ─────────────────────────
+router.get('/sessions/:id/students', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('viva_sessions')
+      .select('*, users!viva_sessions_student_id_fkey(first_name, last_name, email)')
+      .is('submission_id', null);
+      
+    if (error) throw error;
+
+    // Filter by _parent_session_id
+    const students = (data || []).filter(row => {
+      try {
+        const m = JSON.parse(row.transcript || '{}');
+        return m._parent_session_id === req.params.id;
+      } catch { return false; }
+    });
+    
+    res.json(students);
+  } catch (err) {
+    console.error('[Viva GET /sessions/:id/students]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PATCH override AI report for a student session ──────────────────────────
+router.patch('/sessions/:studentSessionId/report', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
+  try {
+    const { ai_report } = req.body;
+    const { data, error } = await supabaseAdmin
+      .from('viva_sessions')
+      .update({ ai_report })
+      .eq('id', req.params.studentSessionId)
+      .select()
+      .single();
+      
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    console.error('[Viva PATCH report]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST create a new viva session (Teacher/Admin) ──────────────────────────
-// Body: { title, scheduled_time, duration_minutes, subject, topic, difficulty, total_questions }
+// Body: { title, scheduled_time, duration_minutes, subject, topic, difficulty, total_questions, assignment_id }
 router.post('/sessions', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
   try {
-    const { title, scheduled_time, duration_minutes, subject, topic, difficulty, total_questions } = req.body;
+    const { title, scheduled_time, duration_minutes, subject, topic, difficulty, total_questions, assignment_id } = req.body;
     const teacher_id = req.user.id;
 
-    // Store metadata in transcript field as a JSON envelope (for backwards compatibility/title)
-    const meta = JSON.stringify({ title, duration_minutes: duration_minutes || 45 });
+    let assignmentContext = null;
+    let finalTitle = title;
+    
+    if (assignment_id) {
+      const { data: assignData } = await supabaseAdmin
+        .from('assignments')
+        .select('title, instructions')
+        .eq('id', assignment_id)
+        .single();
+      
+      if (assignData) {
+        assignmentContext = {
+          id: assignment_id,
+          title: assignData.title,
+          instructions: assignData.instructions
+        };
+        finalTitle = title || `Viva for ${assignData.title}`;
+      }
+    }
+
+    // Store metadata in transcript field as a JSON envelope
+    const meta = JSON.stringify({ 
+      title: finalTitle, 
+      duration_minutes: duration_minutes || 45,
+      assignment: assignmentContext
+    });
 
     const { data, error } = await supabaseAdmin
       .from('viva_sessions')
@@ -336,10 +404,16 @@ router.post('/sessions/:id/next-question', requireAuth, requireRole(['student'])
     // Fetch session details
     const { data: session, error } = await supabaseAdmin
       .from('viva_sessions')
-      .select('subject, topic, difficulty, total_questions')
+      .select('subject, topic, difficulty, total_questions, transcript')
       .eq('id', req.params.id)
       .single();
     if (error || !session) throw new Error('Session not found');
+
+    let assignmentContext = null;
+    try {
+      const parsed = JSON.parse(session.transcript || '{}');
+      if (parsed.assignment) assignmentContext = parsed.assignment;
+    } catch (e) {}
 
     const result = await generateNextVivaQuestion(
       session.subject, 
@@ -347,7 +421,8 @@ router.post('/sessions/:id/next-question', requireAuth, requireRole(['student'])
       session.difficulty, 
       transcriptMessages, 
       currentQuestionCount, 
-      session.total_questions
+      session.total_questions,
+      assignmentContext
     );
 
     res.json(result);
@@ -365,12 +440,18 @@ router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), asy
     // Fetch session details
     const { data: session, error } = await supabaseAdmin
       .from('viva_sessions')
-      .select('subject, topic')
+      .select('subject, topic, transcript')
       .eq('id', req.params.id)
       .single();
     if (error || !session) throw new Error('Session not found');
 
-    const report = await evaluateVivaSession(session.subject, session.topic, transcriptMessages);
+    let assignmentContext = null;
+    try {
+      const parsed = JSON.parse(session.transcript || '{}');
+      if (parsed.assignment) assignmentContext = parsed.assignment;
+    } catch (e) {}
+
+    const report = await evaluateVivaSession(session.subject, session.topic, transcriptMessages, assignmentContext);
 
     // Save report to DB and mark ended
     const { data: updated, error: updateErr } = await supabaseAdmin

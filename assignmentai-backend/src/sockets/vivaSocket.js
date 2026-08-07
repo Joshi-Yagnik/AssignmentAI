@@ -30,6 +30,15 @@ module.exports = function(io) {
       });
     });
 
+    // Receive live draft updates as the student is typing/speaking
+    socket.on('viva_transcript_live_draft', (data) => {
+      io.to(data.sessionId).emit('teacher_transcript_live_draft', {
+        ...data,
+        socketId: data.socketId || socket.id,
+        studentName: data.studentName || `Student (${socket.id.slice(0, 6)})`,
+      });
+    });
+
     // Receive security warnings — include student identity
     socket.on('viva_warning', (data) => {
       console.log(`Viva Warning for ${data.sessionId}: ${data.type}`);

@@ -10,6 +10,7 @@ import {
   getUsers, createUser, updateUser, deleteUser, bulkUploadUsers,
   getDepartments
 } from '../../services/adminService';
+import * as xlsx from 'xlsx';
 
 const ROLE_COLORS = {
   teacher: 'bg-primary-50 text-primary',
@@ -25,18 +26,6 @@ const CSV_TEMPLATE_STUDENT =
   'name,email,password,department_code\nJane Smith,jane@example.com,Pass@123,CSE';
 const CSV_TEMPLATE_TEACHER =
   'name,email,password,department_code\nJohn Doe,john@example.com,Pass@123,IT';
-
-function parseCsv(text) {
-  const lines = text.trim().split('\n').filter(Boolean);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim());
-  return lines.slice(1).map(line => {
-    const vals = line.split(',').map(v => v.trim());
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
-    return obj;
-  });
-}
 
 export default function UsersPage() {
   const toast = useToast();
@@ -131,18 +120,30 @@ export default function UsersPage() {
   const processFile = (file) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const rows = parseCsv(ev.target.result);
+      let rows = [];
+      try {
+        const data = new Uint8Array(ev.target.result);
+        const workbook = xlsx.read(data, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        rows = xlsx.utils.sheet_to_json(firstSheet);
+      } catch (err) {
+        toast({ type: 'error', title: 'Failed to parse file. Make sure it is a valid Excel or CSV file.' });
+        return;
+      }
+      
       const errs = [];
       rows.forEach((row, i) => {
-        if (!row.name)     errs.push(`Row ${i + 2}: missing name`);
-        if (!row.email)    errs.push(`Row ${i + 2}: missing email`);
-        if (!row.password) errs.push(`Row ${i + 2}: missing password`);
+        // Validate required fields (using either our old format or the new Excel template format)
+        const email = row.email || row.Email;
+        const name = row.name || row.Name || row.firstName || row.first_name || row['First Name'];
+        if (!name) errs.push(`Row ${i + 2}: missing name or firstName`);
+        if (!email) errs.push(`Row ${i + 2}: missing email`);
       });
       setCsvRows(rows);
       setCsvErrors(errs);
       setUploadResult(null);
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const handleFileChange = (e) => {
@@ -445,10 +446,10 @@ export default function UsersPage() {
             onDragOver={e => e.preventDefault()}
             onDrop={handleDrop}
           >
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange} />
-            <FileText className="w-10 h-10 mx-auto mb-3 text-ink-muted/50" />
-            <p className="font-semibold text-ink-primary">Drop CSV file here or click to browse</p>
-            <p className="text-label-sm text-ink-muted mt-1">Only .csv files accepted</p>
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileChange} />
+            <Upload className="w-8 h-8 text-primary/50 mb-3" />
+            <p className="font-semibold text-ink-primary">Drop Excel or CSV file here or click to browse</p>
+            <p className="text-label-sm text-ink-muted mt-1">Accepts .xlsx, .xls, .csv</p>
           </div>
 
           {/* Parsed rows preview */}

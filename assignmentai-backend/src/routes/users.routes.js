@@ -168,16 +168,21 @@ router.post('/bulk', ...adminOnly, async (req, res) => {
 
     for (const user of users) {
       try {
-        if (!user.name || !user.email || !user.password) {
-          failed.push({ email: user.email || '?', error: 'Missing name, email, or password' });
+        if (!user.first_name && !user.firstName && !user.name) {
+          failed.push({ email: user.email || '?', error: 'Missing name or first_name' });
+          continue;
+        }
+        if (!user.email) {
+          failed.push({ email: '?', error: 'Missing email' });
           continue;
         }
 
-        const parts = (user.name || '').trim().split(' ');
-        const fName = parts[0];
-        const lName = parts.slice(1).join(' ');
-
-        const password_hash = await bcrypt.hash(user.password, 10);
+        const fName = user.firstName || user.first_name || (user.name ? user.name.split(' ')[0] : '');
+        const lName = user.lastName || user.last_name || (user.name ? user.name.split(' ').slice(1).join(' ') : '');
+        
+        // Use provided password, fallback to enrollment_number, fallback to Password123!
+        const rawPassword = user.password || user.enrollmentNumber || user.enrollment_number || 'Password123!';
+        const password_hash = await bcrypt.hash(rawPassword.toString(), 10);
 
         // ── Resolve department_code → department_id ───────────────────────
         let department_id = null;
@@ -209,6 +214,13 @@ router.post('/bulk', ...adminOnly, async (req, res) => {
             password_hash,
             role,
             department_id,
+            enrollment_number: user.enrollmentNumber ? String(user.enrollmentNumber) : null,
+            phone: user.phone ? String(user.phone) : null,
+            current_semester: user.currentSemester ? parseInt(user.currentSemester, 10) : null,
+            gender: user.gender || null,
+            class_name: user['Class '] || user.class_name || null,
+            lab_batch: user['Lab- Batch '] || user.lab_batch || null,
+            batch_year: user.Batch || user.batch_year || null
           }])
           .select('id, first_name, last_name, email, role')
           .single();

@@ -49,6 +49,52 @@ async function createNotification(userId, title, message, type = 'info') {
   }
 }
 
+/**
+ * Notify all admins
+ */
+async function notifyAdmins(title, message, type = 'info') {
+  try {
+    const { data: admins, error } = await supabase
+      .from('users')
+      .select('id')
+      .eq('role', 'admin')
+      .eq('is_active', true);
+
+    if (error || !admins) return;
+    
+    // Fire notifications asynchronously
+    admins.forEach(admin => {
+      createNotification(admin.id, title, message, type).catch(() => {});
+    });
+  } catch (err) {
+    console.error('Failed to notify admins:', err);
+  }
+}
+
+/**
+ * Notify all students
+ */
+async function notifyStudents(title, message, type = 'info') {
+  try {
+    const { data: students, error } = await supabase
+      .from('users')
+      .select('id')
+      .eq('role', 'student')
+      .eq('is_active', true);
+
+    if (error || !students) return;
+    
+    // Fire notifications asynchronously
+    students.forEach(student => {
+      createNotification(student.id, title, message, type).catch(() => {});
+    });
+  } catch (err) {
+    console.error('Failed to notify students:', err);
+  }
+}
+
 module.exports = {
-  createNotification
+  createNotification,
+  notifyAdmins,
+  notifyStudents
 };

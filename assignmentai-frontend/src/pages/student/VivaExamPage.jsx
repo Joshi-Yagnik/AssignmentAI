@@ -172,6 +172,17 @@ export default function VivaExamPage() {
     }
   }, [micOn, camOn]);
 
+  // Stream live answer draft
+  useEffect(() => {
+    if (socketRef.current && templateSessionId) {
+      socketRef.current.emit('viva_transcript_live_draft', {
+        sessionId: templateSessionId,
+        studentName,
+        draft: answer
+      });
+    }
+  }, [answer, templateSessionId, studentName]);
+
   const handleSubmitAnswer = async () => {
     if (!answer.trim()) return;
     window.speechSynthesis.cancel();
@@ -235,6 +246,16 @@ export default function VivaExamPage() {
           <span className="text-primary-200 text-sm hidden sm:inline">{meta.title}</span>
         </div>
         <div className="flex items-center gap-4">
+          <button 
+            onClick={() => {
+              if (window.confirm("Are you sure you want to finish the Viva early?")) {
+                handleEvaluate(messages);
+              }
+            }} 
+            className="px-3 py-1.5 text-xs font-bold bg-danger/20 text-danger-100 hover:bg-danger/30 rounded-md transition-colors"
+          >
+            Finish Early
+          </button>
           <span className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-danger animate-pulse-dot" />
             <span className="text-white/70 text-xs font-semibold">LIVE</span>
@@ -262,14 +283,25 @@ export default function VivaExamPage() {
               <Bot className={`w-12 h-12 ${loadingAI ? 'text-primary/50' : 'text-primary'}`} />
             </div>
             
-            <div className="mt-6 max-w-2xl text-center px-6">
+            <div className="mt-6 max-w-2xl text-center px-6 pb-6">
               {loadingAI ? (
                 <div className="flex items-center justify-center gap-2 text-primary-700 font-medium">
                   <span className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                   AI is thinking...
                 </div>
               ) : (
-                <p className="text-lg md:text-xl font-semibold text-primary-900 leading-relaxed">"{currentAiQuestion}"</p>
+                <div className="flex flex-col items-center gap-3">
+                  <span className="px-3 py-1 bg-primary-100 text-primary-700 text-xs font-bold tracking-wider uppercase rounded-full">
+                    Current Question
+                  </span>
+                  <p className="text-xl md:text-2xl font-bold text-primary-950 leading-relaxed">"{currentAiQuestion}"</p>
+                  <button 
+                    onClick={() => speakText(currentAiQuestion)}
+                    className="mt-2 btn btn-ghost btn-sm text-primary-600 hover:bg-primary-50 flex items-center gap-2"
+                  >
+                    <Volume2 className="w-4 h-4" /> Replay Audio
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -287,10 +319,10 @@ export default function VivaExamPage() {
             </div>
             
             <textarea
-              className="input resize-none flex-1 focus:ring-2 focus:ring-primary/40 text-base leading-relaxed"
+              className="input resize-none flex-1 focus:ring-2 focus:ring-primary/40 text-base leading-relaxed bg-surface-low"
               value={answer}
               onChange={e => setAnswer(e.target.value)}
-              placeholder={micOn ? "Speak your answer or type here..." : "Type your answer here..."}
+              placeholder={micOn ? "Speak your answer... (Text will appear here)" : "Type your answer here..."}
               disabled={loadingAI}
             />
 
@@ -298,17 +330,26 @@ export default function VivaExamPage() {
               <div className="flex items-center gap-2">
                 <button 
                   onClick={() => setMicOn(!micOn)} 
-                  className={`btn btn-sm ${micOn ? 'bg-primary-50 text-primary-700' : 'bg-surface-high text-ink-muted'}`}
+                  className={`btn ${micOn ? 'bg-primary-100 text-primary-700 hover:bg-primary-200' : 'btn-ghost text-ink-muted'} btn-sm px-3`}
+                  title="Toggle Microphone"
                 >
-                  {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                  {micOn ? <Mic className="w-4 h-4 animate-pulse" /> : <MicOff className="w-4 h-4" />}
+                  <span className="ml-2 font-medium">{micOn ? 'Mic Active' : 'Mic Off'}</span>
+                </button>
+                <button 
+                  onClick={() => setCamOn(!camOn)} 
+                  className={`btn ${camOn ? 'bg-surface-high text-ink-primary' : 'btn-ghost text-ink-muted'} btn-sm`}
+                  title="Toggle Camera"
+                >
+                  {camOn ? <CameraIcon className="w-4 h-4" /> : <CameraOff className="w-4 h-4" />}
                 </button>
               </div>
               <button
-                className="btn-primary"
+                className="btn-primary btn-sm flex items-center gap-2 px-6 shadow-md shadow-primary/20"
                 onClick={handleSubmitAnswer}
                 disabled={loadingAI || !answer.trim()}
               >
-                Submit Answer <ChevronRight className="w-4 h-4 ml-1" />
+                Submit Verbal Answer <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>
