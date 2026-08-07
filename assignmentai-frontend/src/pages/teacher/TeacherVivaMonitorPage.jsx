@@ -142,6 +142,55 @@ export default function TeacherVivaMonitorPage() {
       toast({ type: 'info', title: 'Student Finished', message: `${data.studentName || 'A student'} has ended their session.` });
     });
 
+    // AI grade arrived — update student card instantly
+    socketRef.current.on('student_viva_graded', (data) => {
+      setActiveStudents(prev => {
+        // Find by studentId or sessionId
+        const key = Object.keys(prev).find(k =>
+          prev[k].studentId === data.studentId || k === data.sessionId
+        ) || data.sessionId;
+        return {
+          ...prev,
+          [key]: {
+            ...(prev[key] || {}),
+            socketId: key,
+            name: data.studentName || prev[key]?.name || 'Student',
+            status: 'graded',
+            aiScore: data.aiScore,
+            maxScore: data.maxScore,
+          }
+        };
+      });
+      toast({
+        type: 'success',
+        title: '🎯 AI Grade Ready',
+        message: `${data.studentName} scored ${data.aiScore}/${data.maxScore}`
+      });
+    });
+
+    // TA submitted a score — show it on student card
+    socketRef.current.on('ta_score_submitted', (data) => {
+      setActiveStudents(prev => {
+        const key = Object.keys(prev).find(k =>
+          prev[k].studentId === data.studentId || k === data.sessionId
+        ) || data.sessionId;
+        return {
+          ...prev,
+          [key]: {
+            ...(prev[key] || {}),
+            socketId: key,
+            name: data.studentName || prev[key]?.name || 'Student',
+            taScore: data.taScore,
+          }
+        };
+      });
+      toast({
+        type: 'info',
+        title: '📝 TA Score Submitted',
+        message: `${data.studentName}: ${data.taScore}/100`
+      });
+    });
+
     return () => socketRef.current.disconnect();
   }, [sessionId, toast]);
 

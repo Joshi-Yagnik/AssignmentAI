@@ -1,7 +1,7 @@
 const { Redis } = require('ioredis');
 require('dotenv').config();
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const REDIS_URL = process.env.REDIS_URL;
 
 /**
  * Shared IORedis client.
@@ -12,6 +12,7 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
  * server doesn't spam error logs when Redis is not running.
  */
 function createRedisConnection() {
+  if (!REDIS_URL) return null;
   return new Redis(REDIS_URL, {
     maxRetriesPerRequest: null, // required by BullMQ
     enableReadyCheck: false,

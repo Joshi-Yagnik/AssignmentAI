@@ -31,9 +31,9 @@ export default function TeacherVivaPage() {
   });
   const [creating, setCreating] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isPolling = false) => {
     try {
-      setLoading(true);
+      if (!isPolling) setLoading(true);
       const [{ data: sessData }, { data: asmts }] = await Promise.all([
         api.get('/viva/sessions'),
         api.get('/assignments'),
@@ -48,13 +48,17 @@ export default function TeacherVivaPage() {
       const classes = await getMetadataClasses();
       setClassMetadata(classes || []);
     } catch {
-      toast({ type: 'error', title: 'Failed to load sessions' });
+      if (!isPolling) toast({ type: 'error', title: 'Failed to load sessions' });
     } finally {
-      setLoading(false);
+      if (!isPolling) setLoading(false);
     }
   }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { 
+    load(); 
+    const interval = setInterval(() => load(true), 3000);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const handleCreate = async (e) => {
     e.preventDefault();

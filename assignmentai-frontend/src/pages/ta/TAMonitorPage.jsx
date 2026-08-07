@@ -38,6 +38,7 @@ export default function TAMonitorPage() {
   useEffect(() => {
     socketRef.current = io(SOCKET_URL);
     // TA joins as 'ta' role — invisible to student
+    // Join the exam session room (viva_exam_sessions ID)
     socketRef.current.emit('join_viva', { sessionId, role: 'ta' });
 
     // Student joined
@@ -86,8 +87,35 @@ export default function TAMonitorPage() {
       });
     });
 
+    // AI grading completed — show score on student card instantly
+    socketRef.current.on('student_viva_graded', (data) => {
+      setActiveStudents(prev => {
+        const key = Object.keys(prev).find(k =>
+          prev[k].studentId === data.studentId || k === data.sessionId
+        ) || data.sessionId;
+        return {
+          ...prev,
+          [key]: {
+            ...(prev[key] || {}),
+            name: data.studentName || prev[key]?.name || 'Student',
+            status: 'graded',
+            aiScore: data.aiScore,
+            maxScore: data.maxScore,
+          }
+        };
+      });
+    });
+
     return () => { socketRef.current?.disconnect(); };
   }, [sessionId]);
+
+  // Once session data loads, also join the legacy viva_sessions template room
+  // This bridges the gap for students already connected to the old room
+  useEffect(() => {
+    if (session?.legacy_session_id && session.legacy_session_id !== sessionId && socketRef.current) {
+      socketRef.current.emit('join_viva', { sessionId: session.legacy_session_id, role: 'ta' });
+    }
+  }, [session, sessionId]);
 
   const handleScoreChange = (socketId, field, value) => {
     setScores(prev => ({
@@ -183,8 +211,16 @@ export default function TAMonitorPage() {
                               </span>
                             ) : 'No violations'}
                           </p>
+                          {student.aiScore != null && (
+                            <p className="text-[11px] font-bold text-success">
+                              AI: {student.aiScore}/{student.maxScore}
+                            </p>
+                          )}
                         </div>
-                        {isDone && <CheckCircle2 className="w-4 h-4 text-success shrink-0" />}
+                        {student.status === 'graded'
+                          ? <Star className="w-4 h-4 text-warning shrink-0" />
+                          : isDone && <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                        }
                       </div>
                     </div>
                   );

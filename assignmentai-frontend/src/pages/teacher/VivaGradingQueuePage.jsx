@@ -1,9 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
 import api from '../../services/api';
-import { BarChart2, Bot, Star, ChevronDown, AlertTriangle, CheckCircle2, Minus, ArrowUpDown } from 'lucide-react';
+import io from 'socket.io-client';
+import { BarChart2, Bot, Star, ChevronDown, AlertTriangle, CheckCircle2, Minus, ArrowUpDown, Send } from 'lucide-react';
+
+const SOCKET_URL = import.meta.env.VITE_API_BASE_URL
+  ? import.meta.env.VITE_API_BASE_URL.replace('/api', '')
+  : 'http://localhost:5000';
 
 const POLICY_OPTIONS = [
   { value: 'ai_only',  label: 'AI Only',      desc: 'Use AI score exclusively' },
@@ -31,6 +36,8 @@ export default function VivaGradingQueuePage() {
   const [loading, setLoading] = useState(true);
   const [policy, setPolicy] = useState('ai_only');
   const [savingPolicy, setSavingPolicy] = useState(false);
+  const [declaringResult, setDeclaringResult] = useState({}); // { studentSessionId: true/false }
+  const socketRef = useRef(null);
 
   const load = useCallback(async () => {
     try {
@@ -47,6 +54,46 @@ export default function VivaGradingQueuePage() {
   }, [sessionId, toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Socket: update TA score live when TA submits
+  useEffect(() => {
+    socketRef.current = io(SOCKET_URL);
+    socketRef.current.emit('join_viva', { sessionId, role: 'teacher' });
+    socketRef.current.on('ta_score_submitted', (data) => {
+      setQueue(prev => prev.map(s =>
+        s.student_id === data.studentId
+          ? { ...s, ta_score: data.taScore, ta_notes: data.notes }
+          : s
+      ));
+      toast({ type: 'info', title: '📝 TA Score Updated', message: `${data.studentName}: ${data.taScore}/100` });
+    });
+    return () => socketRef.current?.disconnect();
+  }, [sessionId, toast]);
+
+  const declareResult = async (student) => {
+    if (!student.student_session_id) {
+      return toast({ type: 'warning', title: 'Cannot declare — student has not taken this viva yet' });
+    }
+    const score = student.final_score;
+    if (score == null) {
+      return toast({ type: 'warning', title: 'No final score available to declare' });
+    }
+    setDeclaringResult(prev => ({ ...prev, [student.student_id]: true }));
+    try {
+      await api.post(`/viva/sessions/${sessionId}/declare-result`, {
+        studentSessionId: student.student_session_id,
+        finalScore: score,
+      });
+      setQueue(prev => prev.map(s =>
+        s.student_id === student.student_id ? { ...s, result_declared: true } : s
+      ));
+      toast({ type: 'success', title: `✅ Result declared for ${student.name}` });
+    } catch (err) {
+      toast({ type: 'error', title: 'Failed to declare result', message: err?.response?.data?.error || '' });
+    } finally {
+      setDeclaringResult(prev => ({ ...prev, [student.student_id]: false }));
+    }
+  };
 
   const handlePolicyChange = async (newPolicy) => {
     setPolicy(newPolicy);
@@ -167,6 +214,7 @@ export default function VivaGradingQueuePage() {
                   <th className="p-4 font-semibold text-center">Divergence</th>
                   <th className="p-4 font-semibold text-center bg-primary/5 text-primary">Final Score</th>
                   <th className="p-4 font-semibold text-right">TA Notes</th>
+                  <th className="p-4 font-semibold text-center text-success">Declare</th>
                 </tr>
               </thead>
               <tbody>
@@ -240,6 +288,22 @@ export default function VivaGradingQueuePage() {
                           <span className="text-xs text-ink-secondary italic">{student.ta_notes}</span>
                         ) : (
                           <span className="text-ink-muted text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="p-4 text-center">
+                        {student.result_declared ? (
+                          <span className="flex items-center justify-center gap-1 text-success text-xs font-bold">
+                            <CheckCircle2 className="w-4 h-4" /> Declared
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => declareResult(student)}
+                            disabled={declaringResult[student.student_id] || student.final_score == null}
+                            className="btn btn-primary btn-sm flex items-center gap-1 text-xs mx-auto disabled:opacity-40"
+                          >
+                            <Send className="w-3 h-3" />
+                            {declaringResult[student.student_id] ? 'Sending...' : 'Declare'}
+                          </button>
                         )}
                       </td>
                     </tr>

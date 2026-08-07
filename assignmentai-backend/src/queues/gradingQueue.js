@@ -14,6 +14,10 @@ let gradingQueue = null;
 try {
   const redisConnection = createRedisConnection();
 
+  if (!redisConnection) {
+    throw new Error('REDIS_URL is not set or disabled.');
+  }
+
   // Prevent ioredis from emitting an unhandled 'error' event that would
   // crash the Express process when Redis is not running.
   redisConnection.on('error', (err) => {

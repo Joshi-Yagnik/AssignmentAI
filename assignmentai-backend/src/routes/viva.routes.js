@@ -173,8 +173,62 @@ router.get('/sessions/:id', requireAuth, async (req, res) => {
       `)
       .eq('id', req.params.id)
       .single();
-    if (error) throw error;
-    res.json(data);
+    if (!error && data) return res.json(data);
+
+    // Fallback: check viva_exam_sessions (used by TA dashboard)
+    const { data: examSession, error: examErr } = await supabaseAdmin
+      .from('viva_exam_sessions')
+      .select(`
+        id, title, status, scheduled_at, duration_minutes, lab_batch, class_name,
+        teacher_id, ta_id,
+        users!viva_exam_sessions_teacher_id_fkey(first_name, last_name, email)
+      `)
+      .eq('id', req.params.id)
+      .single();
+
+    if (examErr || !examSession) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Also look up the matching legacy viva_sessions template row for socket room bridging
+    let legacySessionId = null;
+    try {
+      const { data: legacySessions } = await supabaseAdmin
+        .from('viva_sessions')
+        .select('id, transcript')
+        .eq('teacher_id', examSession.teacher_id)
+        .is('submission_id', null)
+        .order('scheduled_time', { ascending: false });
+
+      if (legacySessions) {
+        const match = legacySessions.find(row => {
+          try {
+            const m = JSON.parse(row.transcript || '{}');
+            return m.title === examSession.title && !m._parent_session_id;
+          } catch { return false; }
+        });
+        if (match) legacySessionId = match.id;
+      }
+    } catch (e) { /* non-critical */ }
+
+    // Shape to match the structure TA monitor page expects
+    return res.json({
+      id: examSession.id,
+      status: examSession.status,
+      scheduled_time: examSession.scheduled_at,
+      warnings_count: 0,
+      transcript: JSON.stringify({ title: examSession.title }),
+      teacher_id: examSession.teacher_id,
+      ta_id: examSession.ta_id,
+      subject: examSession.title,
+      topic: null,
+      difficulty: null,
+      total_questions: null,
+      ai_report: null,
+      users: examSession.users,
+      _source: 'viva_exam_sessions',
+      legacy_session_id: legacySessionId,
+    });
   } catch (err) {
     res.status(404).json({ error: 'Session not found' });
   }
@@ -402,10 +456,10 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
       .select('student_id, question_index, answer')
       .eq('session_id', sessionId);
 
-    // Also check old viva_sessions for AI report
+    // Also check old viva_sessions for AI report AND result_declared status
     const { data: legacySessions } = await supabaseAdmin
       .from('viva_sessions')
-      .select('student_id, ai_report')
+      .select('id, student_id, ai_report, result_declared, final_score')
       .is('submission_id', null)
       .neq('student_id', null);
 
@@ -413,10 +467,16 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
     (taScores || []).forEach(ts => { taScoreMap[ts.student_id] = ts; });
 
     const aiScoreMap = {};
+    const sessionIdMap = {}; // student_id -> viva_sessions row id
+    const resultDeclaredMap = {};
     (legacySessions || []).forEach(ls => {
-      if (ls.ai_report && ls.student_id) {
-        const report = typeof ls.ai_report === 'string' ? JSON.parse(ls.ai_report) : ls.ai_report;
-        aiScoreMap[ls.student_id] = report?.total_score ?? null;
+      if (ls.student_id) {
+        sessionIdMap[ls.student_id] = ls.id;
+        resultDeclaredMap[ls.student_id] = ls.result_declared || false;
+        if (ls.ai_report) {
+          const report = typeof ls.ai_report === 'string' ? JSON.parse(ls.ai_report) : ls.ai_report;
+          aiScoreMap[ls.student_id] = report?.total_score ?? null;
+        }
       }
     });
 
@@ -434,6 +494,7 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
 
       return {
         student_id: student.id,
+        student_session_id: sessionIdMap[student.id] || null,
         name: `${student.first_name} ${student.last_name}`,
         email: student.email,
         enrollment_number: student.enrollment_number,
@@ -443,7 +504,8 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
         ta_score: taScore,
         ta_notes: taEntry?.notes || null,
         final_score: finalScore,
-        divergence: (aiScore !== null && taScore !== null) ? Math.abs(aiScore - taScore) : null
+        divergence: (aiScore !== null && taScore !== null) ? Math.abs(aiScore - taScore) : null,
+        result_declared: resultDeclaredMap[student.id] || false,
       };
     });
 
@@ -474,9 +536,110 @@ router.post('/sessions/:id/ta-score', requireAuth, requireRole(['ta', 'teacher',
       .single();
 
     if (error) throw error;
+
+    // Notify teacher live about the TA score
+    try {
+      const socketManager = require('../config/socketManager');
+      const io = socketManager.getIO();
+
+      // Look up session to find teacher_id and parent room
+      const { data: session } = await supabaseAdmin
+        .from('viva_sessions')
+        .select('teacher_id, transcript')
+        .eq('id', sessionId)
+        .maybeSingle();
+
+      // Also check viva_exam_sessions
+      const { data: examSession } = await supabaseAdmin
+        .from('viva_exam_sessions')
+        .select('teacher_id')
+        .eq('id', sessionId)
+        .maybeSingle();
+
+      const teacherId = session?.teacher_id || examSession?.teacher_id;
+
+      // Fetch student name
+      let studentName = 'Student';
+      const { data: stUser } = await supabaseAdmin
+        .from('users').select('first_name, last_name').eq('id', student_id).maybeSingle();
+      if (stUser) studentName = `${stUser.first_name || ''} ${stUser.last_name || ''}`.trim();
+
+      const payload = { sessionId, studentId: student_id, studentName, taScore: Number(ta_score), notes: notes || '' };
+
+      // Emit to the session room (teacher monitor is listening here)
+      io.to(`viva_${sessionId}`).emit('ta_score_submitted', payload);
+
+      // Also emit to the template room if available
+      if (session?.transcript) {
+        try {
+          const meta = JSON.parse(session.transcript);
+          if (meta._parent_session_id) io.to(`viva_${meta._parent_session_id}`).emit('ta_score_submitted', payload);
+        } catch (e) {}
+      }
+
+      // Emit to teacher's personal room
+      if (teacherId) io.to(`user_${teacherId}`).emit('ta_score_submitted', payload);
+    } catch (socketErr) {
+      console.error('[ta-score] Socket notify failed:', socketErr.message);
+    }
+
     res.json(data);
   } catch (err) {
     console.error('[Viva POST /ta-score]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+// ─── POST Teacher declares result for a student ──────────────────────────────
+// Updates the student's viva_sessions row with result_declared=true and final_score
+// Then emits result_declared socket event to the student
+router.post('/sessions/:id/declare-result', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
+  try {
+    const { studentSessionId, finalScore } = req.body;
+    // studentSessionId = the student's personal viva_sessions row ID
+
+    if (!studentSessionId || finalScore == null) {
+      return res.status(400).json({ error: 'studentSessionId and finalScore are required' });
+    }
+
+    // Fetch student info
+    const { data: stuSession } = await supabaseAdmin
+      .from('viva_sessions')
+      .select('student_id, subject, topic')
+      .eq('id', studentSessionId)
+      .maybeSingle();
+
+    // Update the student's viva_sessions row with declared result
+    const { data, error } = await supabaseAdmin
+      .from('viva_sessions')
+      .update({
+        result_declared: true,
+        final_score: Number(finalScore),
+        status: 'completed',
+      })
+      .eq('id', studentSessionId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Push to student via socket
+    try {
+      const socketManager = require('../config/socketManager');
+      const io = socketManager.getIO();
+      if (stuSession?.student_id) {
+        io.to(`user_${stuSession.student_id}`).emit('result_declared', {
+          sessionId: studentSessionId,
+          finalScore: Number(finalScore),
+          subject: stuSession.subject,
+        });
+      }
+    } catch (socketErr) {
+      console.error('[declare-result] Socket notify failed:', socketErr.message);
+    }
+
+    res.json({ ok: true, data });
+  } catch (err) {
+    console.error('[Viva POST /declare-result]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -522,6 +685,34 @@ router.patch('/sessions/:id/status', requireAuth, requireRole(['teacher', 'admin
       .select()
       .single();
     if (error) throw error;
+
+    // Synchronize with viva_exam_sessions (since TA relies on it)
+    if (data && data.teacher_id && data.transcript) {
+      try {
+        const meta = JSON.parse(data.transcript || '{}');
+        if (meta.title) {
+          // Find and update the most recent matching viva_exam_sessions
+          const { data: matchSession } = await supabaseAdmin
+            .from('viva_exam_sessions')
+            .select('id')
+            .eq('teacher_id', data.teacher_id)
+            .eq('title', meta.title)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (matchSession) {
+            await supabaseAdmin
+              .from('viva_exam_sessions')
+              .update({ status: dbStatus })
+              .eq('id', matchSession.id);
+          }
+        }
+      } catch (e) {
+        console.error('[Viva PATCH status] Sync to viva_exam_sessions failed', e.message);
+      }
+    }
+
     res.json(data);
   } catch (err) {
     console.error('[Viva PATCH status]', err.message);
@@ -587,6 +778,20 @@ router.post('/sessions/:id/join', requireAuth, requireRole(['student']), async (
     let templateMeta = {};
     try { templateMeta = JSON.parse(template.transcript || '{}'); } catch {}
 
+    // Look up the corresponding viva_exam_sessions row for TA monitoring
+    let examSessionId = null;
+    if (templateMeta.title && template.teacher_id) {
+      const { data: examRow } = await supabaseAdmin
+        .from('viva_exam_sessions')
+        .select('id')
+        .eq('teacher_id', template.teacher_id)
+        .eq('title', templateMeta.title)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (examRow) examSessionId = examRow.id;
+    }
+
     // Check if student already joined — look for a row with _parent_session_id marker
     const { data: existingRows } = await supabaseAdmin
       .from('viva_sessions')
@@ -603,16 +808,17 @@ router.post('/sessions/:id/join', requireAuth, requireRole(['student']), async (
       });
       if (alreadyJoined) {
         if (alreadyJoined.status === 'completed') {
-          return res.json({ sessionId: alreadyJoined.id, alreadyJoined: true, completed: true });
+          return res.json({ sessionId: alreadyJoined.id, alreadyJoined: true, completed: true, examSessionId });
         }
-        return res.json({ sessionId: alreadyJoined.id, alreadyJoined: true });
+        return res.json({ sessionId: alreadyJoined.id, alreadyJoined: true, examSessionId });
       }
     }
 
-    // Build participation transcript: embed questions + parent marker
+    // Build participation transcript: embed questions + parent marker + exam session ref
     const participationMeta = JSON.stringify({
       ...templateMeta,
       _parent_session_id: templateId,
+      _exam_session_id: examSessionId,
       _student_answer: '',
     });
 
@@ -636,7 +842,7 @@ router.post('/sessions/:id/join', requireAuth, requireRole(['student']), async (
       .single();
     if (ne) throw ne;
 
-    res.status(201).json({ sessionId: newRow.id, alreadyJoined: false });
+    res.status(201).json({ sessionId: newRow.id, alreadyJoined: false, examSessionId });
   } catch (err) {
     console.error('[Viva POST /join]', err.message);
     res.status(400).json({ error: err.message });
@@ -750,15 +956,16 @@ router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), asy
     // Fetch session details
     const { data: session, error } = await supabaseAdmin
       .from('viva_sessions')
-      .select('subject, topic, transcript')
+      .select('subject, topic, transcript, teacher_id, student_id')
       .eq('id', req.params.id)
       .single();
     if (error || !session) throw new Error('Session not found');
 
     let assignmentContext = null;
+    let parsedMeta = {};
     try {
-      const parsed = JSON.parse(session.transcript || '{}');
-      if (parsed.assignment) assignmentContext = parsed.assignment;
+      parsedMeta = JSON.parse(session.transcript || '{}');
+      if (parsedMeta.assignment) assignmentContext = parsedMeta.assignment;
     } catch (e) {}
 
     const report = await evaluateVivaSession(session.subject, session.topic, transcriptMessages, assignmentContext);
@@ -776,6 +983,49 @@ router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), asy
     
     if (updateErr) throw updateErr;
 
+    // ── Notify Teacher & TA monitor via socket ────────────────────────────────
+    try {
+      const socketManager = require('../config/socketManager');
+      const io = socketManager.getIO();
+
+      // Fetch student name
+      let studentName = 'Student';
+      const { data: studentUser } = await supabaseAdmin
+        .from('users')
+        .select('first_name, last_name')
+        .eq('id', session.student_id)
+        .maybeSingle();
+      if (studentUser) studentName = `${studentUser.first_name || ''} ${studentUser.last_name || ''}`.trim();
+
+      const gradePayload = {
+        sessionId: req.params.id,
+        studentId: session.student_id,
+        studentName,
+        aiScore: report.total_score,
+        maxScore: report.max_score || 100,
+        subject: session.subject,
+      };
+
+      // Emit to parent template session room (teacher's live monitor)
+      const parentId = parsedMeta._parent_session_id;
+      if (parentId) {
+        io.to(`viva_${parentId}`).emit('student_viva_graded', gradePayload);
+      }
+
+      // Also emit to exam session room (TA monitor)
+      const examSessionId = parsedMeta._exam_session_id;
+      if (examSessionId) {
+        io.to(`viva_${examSessionId}`).emit('student_viva_graded', gradePayload);
+      }
+
+      // Emit to teacher's personal notification room
+      if (session.teacher_id) {
+        io.to(`user_${session.teacher_id}`).emit('student_viva_graded', gradePayload);
+      }
+    } catch (socketErr) {
+      console.error('[Viva /evaluate] Socket notify failed:', socketErr.message);
+    }
+
     res.json({ report, session: updated });
   } catch (err) {
     console.error('[Viva POST /evaluate]', err.message);
@@ -784,3 +1034,4 @@ router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), asy
 });
 
 module.exports = router;
+

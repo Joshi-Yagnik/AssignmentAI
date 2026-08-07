@@ -34,6 +34,7 @@ export default function VivaExamPage() {
   const { user } = useAuth();
   
   const templateSessionId = location.state?.templateSessionId || sessionId;
+  const examSessionId = location.state?.examSessionId || null;
   const studentName = user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email : 'Student';
 
   // Session Meta
@@ -115,7 +116,12 @@ export default function VivaExamPage() {
   // WebRTC & Speech Recognition Setup
   useEffect(() => {
     socketRef.current = io(SOCKET_URL);
-    socketRef.current.emit('join_viva', { sessionId: templateSessionId, studentName, role: 'student' });
+    // Join the template session room (for teacher monitoring)
+    socketRef.current.emit('join_viva', { sessionId: templateSessionId, studentName, role: 'student', studentId: user?.id });
+    // Also join the TA exam room (viva_exam_sessions ID) so TA monitor can see this student
+    if (examSessionId && examSessionId !== templateSessionId) {
+      socketRef.current.emit('join_viva', { sessionId: examSessionId, studentName, role: 'student', studentId: user?.id });
+    }
 
     async function loadMedia() {
       try {

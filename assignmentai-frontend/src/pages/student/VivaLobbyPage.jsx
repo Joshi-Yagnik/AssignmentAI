@@ -68,7 +68,7 @@ export default function VivaLobbyPage() {
       } else {
         // Navigate to exam with the student's own session id
         navigate(`/student/viva/${data.sessionId}`, {
-          state: { meta, templateSessionId: session.id }
+          state: { meta, templateSessionId: session.id, examSessionId: data.examSessionId }
         });
       }
     } catch (err) {

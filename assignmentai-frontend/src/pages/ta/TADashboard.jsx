@@ -19,20 +19,26 @@ export default function TADashboard() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isPolling = false) => {
     try {
-      setLoading(true);
+      if (!isPolling) setLoading(true);
       const { data } = await api.get('/viva/ta/sessions');
       setSessions(data || []);
     } catch (err) {
-      const msg = err.response?.data?.error || err.message || 'Unknown error';
-      toast({ type: 'error', title: `Failed to load sessions: ${msg}` });
+      if (!isPolling) {
+        const msg = err.response?.data?.error || err.message || 'Unknown error';
+        toast({ type: 'error', title: `Failed to load sessions: ${msg}` });
+      }
     } finally {
-      setLoading(false);
+      if (!isPolling) setLoading(false);
     }
   }, [toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { 
+    load(); 
+    const interval = setInterval(() => load(true), 3000);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const upcoming = sessions.filter(s => s.status === 'scheduled');
   const live     = sessions.filter(s => s.status === 'live');
