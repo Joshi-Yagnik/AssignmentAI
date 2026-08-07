@@ -68,7 +68,7 @@ jobs:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ steps.resolve-ids.outputs.org_id }}
           vercel-project-id: ${{ steps.resolve-ids.outputs.project_id }}
-          vercel-args: '--prod --yes'
+          vercel-args: '--prod'
           working-directory: ${{ github.workspace }}
 
   # ── Deploy Backend to Render ─────────────────────────────────────────────────
