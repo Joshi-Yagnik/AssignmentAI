@@ -48,8 +48,8 @@ jobs:
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
 
-      - name: Resolve Vercel Project IDs
-        # Dynamically fetch the project ID and org ID so we don't rely on manual GitHub Secrets.
+      - name: Resolve and Link Vercel Project
+        # Dynamically fetch the project ID and org ID and write them to .vercel/project.json
         run: |
           echo "Fetching project info for 'assignment-ai'..."
           RESPONSE=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" "https://api.vercel.com/v9/projects/assignment-ai")
@@ -59,25 +59,28 @@ jobs:
           if [ "$HTTP_CODE" -ne 200 ]; then
             echo "Failed to fetch Vercel project. HTTP $HTTP_CODE"
             echo "Body: $BODY"
-            echo "Please ensure VERCEL_TOKEN is correct and has access to the project."
             exit 1
           fi
           
           ORG_ID=$(echo "$BODY" | jq -r '.accountId')
           PROJ_ID=$(echo "$BODY" | jq -r '.id')
           
-          echo "Resolved VERCEL_ORG_ID=$ORG_ID"
-          echo "Resolved VERCEL_PROJECT_ID=$PROJ_ID"
+          echo "Resolved ORG_ID=$ORG_ID"
+          echo "Resolved PROJ_ID=$PROJ_ID"
           
-          echo "VERCEL_ORG_ID=$ORG_ID" >> $GITHUB_ENV
-          echo "VERCEL_PROJECT_ID=$PROJ_ID" >> $GITHUB_ENV
+          # Manually link the project to bypass CLI scope bugs
+          mkdir -p .vercel
+          echo "{\"orgId\":\"$ORG_ID\",\"projectId\":\"$PROJ_ID\"}" > .vercel/project.json
+          echo "Created .vercel/project.json:"
+          cat .vercel/project.json
+        working-directory: ${{ github.workspace }}
 
-      # Pull project settings from Vercel (links to the correct project).
+      # Pull project settings from Vercel (downloads env vars to .vercel/.env.production.local)
       - name: Pull Vercel environment & settings
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
         working-directory: ${{ github.workspace }}
 
-      # Build using Vercel's builder (respects vercel.json at repo root)
+      # Build using Vercel's builder
       - name: Build with Vercel
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         working-directory: ${{ github.workspace }}
