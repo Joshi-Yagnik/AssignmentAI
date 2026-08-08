@@ -59,6 +59,9 @@ export default function VivaExamPage() {
   const streamRef = useRef(null);
   const socketRef = useRef(null);
   const recognitionRef = useRef(null);
+  const peerConnectionsRef = useRef({}); // { viewerSocketId: RTCPeerConnection }
+  
+  const [shouldAutoEnd, setShouldAutoEnd] = useState(false);
 
   // Proctoring Hook Integration
   const { warnings, faceStatus } = useProctoring({
@@ -123,6 +126,68 @@ export default function VivaExamPage() {
       socketRef.current.emit('join_viva', { sessionId: examSessionId, studentName, role: 'student', studentId: user?.id });
     }
 
+    // Handle automated status changes and notifications
+    socketRef.current.on('viva_status_changed', (data) => {
+      if (data.status === 'live') {
+        toast({ type: 'success', title: 'Exam Started', message: 'The exam time has begun.' });
+      }
+    });
+
+    socketRef.current.on('viva_ending_soon', (data) => {
+      toast({ type: 'warning', title: 'Time Running Out!', message: `The exam will end automatically in ${data.minutes} minutes.` });
+    });
+
+    socketRef.current.on('viva_ended', (data) => {
+      toast({ type: 'info', title: 'Exam Concluded', message: 'The exam time is over. Submitting your answers...' });
+      setShouldAutoEnd(true);
+    });
+
+    // ── WebRTC: Respond to stream requests from TA / Teacher ──────────────────
+    const ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    socketRef.current.on('webrtc_request_stream', async ({ fromSocketId }) => {
+      try {
+        const pc = new RTCPeerConnection(ICE_SERVERS);
+        peerConnectionsRef.current[fromSocketId] = pc;
+
+        // Add all local camera/mic tracks
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track =>
+            pc.addTrack(track, streamRef.current)
+          );
+        }
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate && socketRef.current) {
+            socketRef.current.emit('webrtc_ice', {
+              toSocketId: fromSocketId,
+              candidate: event.candidate,
+            });
+          }
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socketRef.current?.emit('webrtc_offer', { toSocketId: fromSocketId, sdp: offer });
+      } catch (err) {
+        console.error('[WebRTC] Failed to create offer:', err);
+      }
+    });
+
+    socketRef.current.on('webrtc_answer', async ({ fromSocketId, sdp }) => {
+      const pc = peerConnectionsRef.current[fromSocketId];
+      if (pc) {
+        try { await pc.setRemoteDescription(new RTCSessionDescription(sdp)); } catch {}
+      }
+    });
+
+    socketRef.current.on('webrtc_ice', async ({ fromSocketId, candidate }) => {
+      const pc = peerConnectionsRef.current[fromSocketId];
+      if (pc) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+      }
+    });
+
     async function loadMedia() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -160,6 +225,9 @@ export default function VivaExamPage() {
       if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
       if (recognitionRef.current) recognitionRef.current.stop();
       if (socketRef.current) socketRef.current.disconnect();
+      // Close all WebRTC peer connections
+      Object.values(peerConnectionsRef.current).forEach(pc => pc.close());
+      peerConnectionsRef.current = {};
       window.speechSynthesis.cancel();
     };
   }, [sessionId, templateSessionId, studentName]);
@@ -193,6 +261,14 @@ export default function VivaExamPage() {
       });
     }
   }, [answer, templateSessionId, studentName]);
+
+  // Handle auto-ending triggered by socket
+  useEffect(() => {
+    if (shouldAutoEnd) {
+      handleEvaluate(messages);
+      setShouldAutoEnd(false);
+    }
+  }, [shouldAutoEnd, messages]);
 
   const handleSubmitAnswer = async () => {
     if (!answer.trim()) return;

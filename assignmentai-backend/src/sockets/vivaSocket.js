@@ -65,6 +65,42 @@ module.exports = function(io) {
       io.to(data.sessionId).emit('session_started', { sessionId: data.sessionId });
     });
 
+    // ── WebRTC Signaling ────────────────────────────────────────────────────────
+    // TA/Teacher requests student's camera stream
+    socket.on('webrtc_request_stream', (data) => {
+      // Forward to the specific student socket so student can initiate offer
+      io.to(data.studentSocketId).emit('webrtc_request_stream', {
+        fromSocketId: socket.id,
+      });
+    });
+
+    // Student sends SDP offer → forward to the requesting TA/Teacher
+    socket.on('webrtc_offer', (data) => {
+      // data: { toSocketId, sdp }
+      io.to(data.toSocketId).emit('webrtc_offer', {
+        fromSocketId: socket.id,
+        sdp: data.sdp,
+      });
+    });
+
+    // TA/Teacher sends SDP answer → forward back to student
+    socket.on('webrtc_answer', (data) => {
+      // data: { toSocketId, sdp }
+      io.to(data.toSocketId).emit('webrtc_answer', {
+        fromSocketId: socket.id,
+        sdp: data.sdp,
+      });
+    });
+
+    // ICE candidates (both directions)
+    socket.on('webrtc_ice', (data) => {
+      // data: { toSocketId, candidate }
+      io.to(data.toSocketId).emit('webrtc_ice', {
+        fromSocketId: socket.id,
+        candidate: data.candidate,
+      });
+    });
+
     socket.on('disconnect', () => {
       console.log(`Socket disconnected: ${socket.id}`);
     });

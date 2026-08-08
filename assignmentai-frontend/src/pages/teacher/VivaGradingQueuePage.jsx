@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
 import api from '../../services/api';
 import io from 'socket.io-client';
-import { BarChart2, Bot, Star, ChevronDown, AlertTriangle, CheckCircle2, Minus, ArrowUpDown, Send } from 'lucide-react';
+import { BarChart2, Bot, Star, ChevronDown, AlertTriangle, CheckCircle2, Minus, ArrowUpDown, Send, ArrowUp, ArrowDown } from 'lucide-react';
 
 const SOCKET_URL = import.meta.env.VITE_API_BASE_URL
   ? import.meta.env.VITE_API_BASE_URL.replace('/api', '')
@@ -37,6 +37,9 @@ export default function VivaGradingQueuePage() {
   const [policy, setPolicy] = useState('ai_only');
   const [savingPolicy, setSavingPolicy] = useState(false);
   const [declaringResult, setDeclaringResult] = useState({}); // { studentSessionId: true/false }
+  const [customScores, setCustomScores] = useState({}); // { student_id: manual_score }
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
+  const [declaringAll, setDeclaringAll] = useState(false);
   const socketRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -74,10 +77,16 @@ export default function VivaGradingQueuePage() {
     if (!student.student_session_id) {
       return toast({ type: 'warning', title: 'Cannot declare — student has not taken this viva yet' });
     }
-    const score = student.final_score;
+    
+    let score = customScores[student.student_id];
+    if (score === undefined || score === '') {
+      score = student.final_score;
+    }
+    
     if (score == null) {
       return toast({ type: 'warning', title: 'No final score available to declare' });
     }
+    
     setDeclaringResult(prev => ({ ...prev, [student.student_id]: true }));
     try {
       await api.post(`/viva/sessions/${sessionId}/declare-result`, {
@@ -85,7 +94,7 @@ export default function VivaGradingQueuePage() {
         finalScore: score,
       });
       setQueue(prev => prev.map(s =>
-        s.student_id === student.student_id ? { ...s, result_declared: true } : s
+        s.student_id === student.student_id ? { ...s, result_declared: true, final_score: score } : s
       ));
       toast({ type: 'success', title: `✅ Result declared for ${student.name}` });
     } catch (err) {
@@ -93,6 +102,57 @@ export default function VivaGradingQueuePage() {
     } finally {
       setDeclaringResult(prev => ({ ...prev, [student.student_id]: false }));
     }
+  };
+
+  const declareAll = async () => {
+    // Find all students who can be declared and haven't been declared yet
+    const pendingStudents = queue.filter(s => {
+      if (!s.student_session_id || s.result_declared) return false;
+      const score = customScores[s.student_id] !== undefined && customScores[s.student_id] !== '' 
+        ? customScores[s.student_id] 
+        : s.final_score;
+      return score != null;
+    });
+
+    if (pendingStudents.length === 0) {
+      return toast({ type: 'info', title: 'No pending students left to declare' });
+    }
+
+    if (!window.confirm(`Are you sure you want to declare results for ${pendingStudents.length} students?`)) {
+      return;
+    }
+
+    setDeclaringAll(true);
+    let successCount = 0;
+    
+    // Process declarations concurrently
+    await Promise.allSettled(pendingStudents.map(async (student) => {
+      const score = customScores[student.student_id] !== undefined && customScores[student.student_id] !== '' 
+        ? customScores[student.student_id] 
+        : student.final_score;
+        
+      setDeclaringResult(prev => ({ ...prev, [student.student_id]: true }));
+      try {
+        await api.post(`/viva/sessions/${sessionId}/declare-result`, {
+          studentSessionId: student.student_session_id,
+          finalScore: score,
+        });
+        setQueue(prev => prev.map(s =>
+          s.student_id === student.student_id ? { ...s, result_declared: true, final_score: score } : s
+        ));
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to declare for ${student.name}`, err);
+      } finally {
+        setDeclaringResult(prev => ({ ...prev, [student.student_id]: false }));
+      }
+    }));
+
+    setDeclaringAll(false);
+    toast({ 
+      type: successCount === pendingStudents.length ? 'success' : 'warning', 
+      title: `Declared ${successCount} out of ${pendingStudents.length} results`
+    });
   };
 
   const handlePolicyChange = async (newPolicy) => {
@@ -108,6 +168,19 @@ export default function VivaGradingQueuePage() {
       setSavingPolicy(false);
     }
   };
+
+  const toggleSort = () => {
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+  };
+
+  const sortedQueue = useMemo(() => {
+    return [...queue].sort((a, b) => {
+      const aVal = a.enrollment_number || '';
+      const bVal = b.enrollment_number || '';
+      if (sortOrder === 'asc') return aVal.localeCompare(bVal, undefined, { numeric: true });
+      return bVal.localeCompare(aVal, undefined, { numeric: true });
+    });
+  }, [queue, sortOrder]);
 
   const policyLabel = POLICY_OPTIONS.find(p => p.value === policy)?.label || policy;
 
@@ -134,23 +207,36 @@ export default function VivaGradingQueuePage() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-label-sm text-ink-muted font-semibold">Scoring Policy</label>
-            <div className="relative">
-              <select
-                className="input pr-10 font-semibold text-primary appearance-none"
-                value={policy}
-                onChange={e => handlePolicyChange(e.target.value)}
-                disabled={savingPolicy}
-              >
-                {POLICY_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label} — {opt.desc}</option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-ink-muted" />
+          <div className="flex items-center justify-between gap-4">
+            <div className="bg-surface-low rounded-xl p-4 border border-border flex-1 max-w-xl">
+              <label className="text-label-sm text-ink-muted mb-1 block">Scoring Policy</label>
+              <div className="relative">
+                <select
+                  value={policy}
+                  onChange={(e) => handlePolicyChange(e.target.value)}
+                  disabled={savingPolicy}
+                  className="input pr-10 appearance-none bg-surface-base w-full font-semibold text-primary"
+                >
+                  {POLICY_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label} — {opt.desc}</option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-ink-muted absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
             </div>
-            {savingPolicy && <p className="text-label-sm text-ink-muted">Saving...</p>}
+            
+            <div className="flex items-center gap-3">
+              <button
+                onClick={declareAll}
+                disabled={declaringAll || queue.filter(s => s.student_session_id && !s.result_declared && (customScores[s.student_id] !== undefined ? customScores[s.student_id] !== '' : s.final_score != null)).length === 0}
+                className="btn btn-primary h-full px-6 py-4 flex items-center gap-2 shadow-lg shadow-primary/20 hover:shadow-primary/30 disabled:opacity-40"
+              >
+                <Send className="w-4 h-4" />
+                {declaringAll ? 'Declaring...' : 'Declare All'}
+              </button>
+            </div>
           </div>
+          {savingPolicy && <p className="text-label-sm text-ink-muted">Saving...</p>}
         </div>
 
         {/* Stats row */}
@@ -200,7 +286,12 @@ export default function VivaGradingQueuePage() {
               <thead>
                 <tr className="bg-surface-low text-label-sm text-ink-muted border-b border-border">
                   <th className="p-4 font-semibold">Student</th>
-                  <th className="p-4 font-semibold text-center">Enrollment</th>
+                  <th className="p-4 font-semibold text-center cursor-pointer select-none hover:text-primary transition-colors" onClick={toggleSort}>
+                    <div className="flex items-center justify-center gap-1">
+                      Enrollment
+                      {sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
+                    </div>
+                  </th>
                   <th className="p-4 font-semibold text-center">
                     <div className="flex items-center justify-center gap-1">
                       <Bot className="w-3.5 h-3.5 text-info" /> AI Score
@@ -237,7 +328,7 @@ export default function VivaGradingQueuePage() {
                     </td>
                   </tr>
                 ) : (
-                  queue.map(student => (
+                  sortedQueue.map(student => (
                     <tr key={student.student_id} className="border-b border-border hover:bg-surface-high/40 transition-colors">
                       <td className="p-4">
                         <div>
@@ -275,12 +366,23 @@ export default function VivaGradingQueuePage() {
                         <DivergenceBadge divergence={student.divergence} />
                       </td>
                       <td className="p-4 text-center bg-primary/5">
-                        {student.final_score !== null ? (
-                          <span className="font-extrabold text-primary text-lg">{student.final_score}</span>
+                        {student.result_declared ? (
+                           <span className="font-extrabold text-primary text-lg">{student.final_score}</span>
                         ) : (
-                          <span className="text-ink-muted text-sm flex items-center justify-center gap-1">
-                            <Minus className="w-3.5 h-3.5" /> —
-                          </span>
+                          <div className="flex items-center justify-center">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              className="input w-20 text-center font-bold text-primary px-1 py-1"
+                              placeholder={student.final_score !== null ? student.final_score.toString() : '—'}
+                              value={customScores[student.student_id] !== undefined ? customScores[student.student_id] : (student.final_score !== null ? student.final_score : '')}
+                              onChange={(e) => {
+                                const val = e.target.value ? Number(e.target.value) : '';
+                                setCustomScores(prev => ({ ...prev, [student.student_id]: val }));
+                              }}
+                            />
+                          </div>
                         )}
                       </td>
                       <td className="p-4 text-right">
@@ -298,7 +400,10 @@ export default function VivaGradingQueuePage() {
                         ) : (
                           <button
                             onClick={() => declareResult(student)}
-                            disabled={declaringResult[student.student_id] || student.final_score == null}
+                            disabled={
+                              declaringResult[student.student_id] ||
+                              (student.final_score == null && (customScores[student.student_id] === undefined || customScores[student.student_id] === ''))
+                            }
                             className="btn btn-primary btn-sm flex items-center gap-1 text-xs mx-auto disabled:opacity-40"
                           >
                             <Send className="w-3 h-3" />

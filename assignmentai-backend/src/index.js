@@ -74,6 +74,10 @@ const io = new Server(server, {
 const socketManager = require('./sockets/socketManager');
 socketManager.init(io);
 
+// Initialize Viva Scheduler (Auto start/end/notify)
+const vivaScheduler = require('./services/vivaScheduler');
+vivaScheduler.initScheduler();
+
 // Global Socket Connection Handler for Rooms
 io.on('connection', (socket) => {
   socket.on('join_room', (room) => {

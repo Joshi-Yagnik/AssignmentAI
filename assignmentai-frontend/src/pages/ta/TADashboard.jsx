@@ -160,11 +160,10 @@ export default function TADashboard() {
                       </p>
                       {(isLive || s.status === 'scheduled') && (
                         <button
-                          className={`mt-2 ${isLive ? 'btn-primary btn-sm' : 'btn btn-secondary btn-sm'}`}
+                          className={`mt-2 ${isLive ? 'btn-primary btn-sm' : 'btn btn-outline btn-sm text-ink-secondary'}`}
                           onClick={() => navigate(`/ta/monitor/${s.id}`)}
-                          disabled={s.status === 'scheduled'}
                         >
-                          {isLive ? 'Monitor' : 'Pending'}
+                          {isLive ? 'Monitor' : 'Enter Room'}
                         </button>
                       )}
                     </div>
