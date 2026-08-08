@@ -31,6 +31,8 @@ export default function TeacherStudentsPage() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterClass, setFilterClass] = useState('all');
   const [filterLabBatch, setFilterLabBatch] = useState('all');
+  const [sortField, setSortField] = useState('name');
+  const [sortOrder, setSortOrder] = useState('asc');
 
   const load = useCallback(async () => {
     try {
@@ -57,7 +59,41 @@ export default function TeacherStudentsPage() {
     if (filterClass !== 'all' && s.class_name !== filterClass) return false;
     if (filterLabBatch !== 'all' && s.lab_batch !== filterLabBatch) return false;
     return true;
+  }).sort((a, b) => {
+    let cmp = 0;
+    if (sortField === 'name') {
+      const nameA = `${a.first_name} ${a.last_name}`.toLowerCase();
+      const nameB = `${b.first_name} ${b.last_name}`.toLowerCase();
+      cmp = nameA.localeCompare(nameB);
+    } else if (sortField === 'email') {
+      cmp = (a.email || '').localeCompare(b.email || '');
+    } else if (sortField === 'submissions') {
+      cmp = (a.submission_count || 0) - (b.submission_count || 0);
+    } else if (sortField === 'score') {
+      cmp = (a.avg_score || 0) - (b.avg_score || 0);
+    } else if (sortField === 'last_active') {
+      const timeA = a.latest_submission ? new Date(a.latest_submission).getTime() : 0;
+      const timeB = b.latest_submission ? new Date(b.latest_submission).getTime() : 0;
+      cmp = timeA - timeB;
+    }
+    return sortOrder === 'asc' ? cmp : -cmp;
   });
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const SortIcon = ({ field }) => {
+    if (sortField !== field) {
+      return <ChevronRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-40 transition-all rotate-90 inline-block ml-1" />;
+    }
+    return <ChevronRight className={`w-3.5 h-3.5 transition-transform inline-block ml-1 text-primary ${sortOrder === 'asc' ? '-rotate-90' : 'rotate-90'}`} />;
+  };
 
   const uniqueClasses = [...new Set(students.map(s => s.class_name).filter(Boolean))].sort();
   const uniqueLabBatches = [...new Set(students.map(s => s.lab_batch).filter(Boolean))].sort();
@@ -178,11 +214,21 @@ export default function TeacherStudentsPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-surface-low text-label-sm text-ink-muted border-b border-border">
-                  <th className="p-4 font-semibold">Student</th>
-                  <th className="p-4 font-semibold">Email</th>
-                  <th className="p-4 font-semibold text-center">Submissions</th>
-                  <th className="p-4 font-semibold">Avg Score</th>
-                  <th className="p-4 font-semibold">Last Active</th>
+                  <th className="p-4 font-semibold cursor-pointer select-none group hover:text-primary transition-colors" onClick={() => handleSort('name')}>
+                    Student <SortIcon field="name" />
+                  </th>
+                  <th className="p-4 font-semibold cursor-pointer select-none group hover:text-primary transition-colors" onClick={() => handleSort('email')}>
+                    Email <SortIcon field="email" />
+                  </th>
+                  <th className="p-4 font-semibold text-center cursor-pointer select-none group hover:text-primary transition-colors" onClick={() => handleSort('submissions')}>
+                    Submissions <SortIcon field="submissions" />
+                  </th>
+                  <th className="p-4 font-semibold cursor-pointer select-none group hover:text-primary transition-colors" onClick={() => handleSort('score')}>
+                    Avg Score <SortIcon field="score" />
+                  </th>
+                  <th className="p-4 font-semibold cursor-pointer select-none group hover:text-primary transition-colors" onClick={() => handleSort('last_active')}>
+                    Last Active <SortIcon field="last_active" />
+                  </th>
                   <th className="p-4 font-semibold">Status</th>
                   <th className="p-4 font-semibold text-right">Actions</th>
                 </tr>

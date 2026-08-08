@@ -36,7 +36,8 @@ router.get('/pending', requireAuth, requireRole(['teacher', 'admin']), async (re
         student_id,
         assignment_id,
         users!submissions_student_id_fkey(first_name, last_name, email),
-        assignments(id, title, max_marks)
+        assignments(id, title, max_marks),
+        ai_reports(final_score)
       `)
       .eq('status', 'submitted')
       .order('submitted_at', { ascending: false });

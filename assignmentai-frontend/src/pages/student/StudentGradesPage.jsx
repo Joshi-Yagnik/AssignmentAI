@@ -235,13 +235,13 @@ export default function StudentGradesPage() {
               
               <div className="flex items-end justify-between gap-1 h-32 mb-2">
                 {trendData.map((val, i) => (
-                  <div key={i} className="relative flex-1 flex items-end justify-center group">
+                  <div key={i} className="relative flex-1 flex items-end justify-center group h-full">
                     <div 
-                      className="w-full max-w-[24px] bg-primary-100 rounded-t-sm transition-all group-hover:bg-primary-300" 
+                      className="w-full max-w-[24px] bg-primary-100 rounded-t-sm transition-all group-hover:bg-primary-300 relative" 
                       style={{ height: `${val}%` }}
                     >
                       <div className="absolute -top-7 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-ink-primary text-white text-[10px] font-bold py-1 px-2 rounded transition-opacity">
-                        {val}
+                        {val}%
                       </div>
                     </div>
                   </div>

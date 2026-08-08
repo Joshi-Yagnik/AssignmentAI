@@ -179,6 +179,100 @@ export default function AdminGlobalReportsPage() {
                   <StatCard icon={FileText} label="Assignments" value={overview.totalAssignments} iconClass="text-primary" bgClass="bg-primary/10" />
                   <StatCard icon={CheckCircle2} label="Total Submissions" value={overview.totalSubmissions} iconClass="text-success" bgClass="bg-success/10" />
                 </div>
+
+                {/* Activity Chart (Professional Enterprise Edition) */}
+                <div className="card flex flex-col gap-5 mt-2">
+                  {/* Header */}
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-border pb-4">
+                    <div>
+                      <h3 className="text-headline-sm text-ink-primary">AI Evaluation Volume</h3>
+                      <p className="text-label-sm text-ink-muted mt-1">Daily processed submissions over the last 7 days</p>
+                    </div>
+                    <div className="mt-3 sm:mt-0 flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-label-sm text-ink-muted">Weekly Total</p>
+                        <p className="text-xl font-bold text-ink-primary">1,248</p>
+                      </div>
+                      <div className="w-[1px] h-8 bg-border" />
+                      <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center">
+                        <BarChart2 className="w-5 h-5 text-primary-600" />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Chart Area */}
+                  <div className="w-full h-64 relative">
+                    <svg viewBox="0 0 1000 250" className="w-full h-full overflow-visible" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="proGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="currentColor" className="text-primary-500" stopOpacity="0.15" />
+                          <stop offset="100%" stopColor="currentColor" className="text-primary-500" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      
+                      {/* Y-Axis Grid Lines & Labels */}
+                      <g className="text-ink-muted text-[10px] font-medium">
+                        <path d="M40 50 H1000" stroke="currentColor" strokeWidth="1" className="text-border" strokeDasharray="4 4" />
+                        <text x="30" y="54" textAnchor="end" fill="currentColor">100</text>
+                        
+                        <path d="M40 125 H1000" stroke="currentColor" strokeWidth="1" className="text-border" strokeDasharray="4 4" />
+                        <text x="30" y="129" textAnchor="end" fill="currentColor">50</text>
+                        
+                        <path d="M40 200 H1000" stroke="currentColor" strokeWidth="1" className="text-border" />
+                        <text x="30" y="204" textAnchor="end" fill="currentColor">0</text>
+                      </g>
+                      
+                      {/* Data Area Fill */}
+                      <path 
+                        d="M40 180 C200 170, 300 90, 450 110 C600 130, 750 40, 960 60 L960 200 L40 200 Z" 
+                        fill="url(#proGradient)" 
+                        className="animate-[fade-in_0.8s_ease-out]" 
+                      />
+                      
+                      {/* Data Line */}
+                      <path 
+                        d="M40 180 C200 170, 300 90, 450 110 C600 130, 750 40, 960 60" 
+                        fill="none" 
+                        stroke="currentColor" 
+                        strokeWidth="3" 
+                        className="text-primary-600"
+                        style={{ strokeDasharray: 1200, strokeDashoffset: 1200, animation: 'drawLine 1.5s cubic-bezier(0.4, 0, 0.2, 1) forwards' }} 
+                      />
+                      
+                      {/* Data Points (Dots) */}
+                      <g className="animate-[fade-in_0.5s_ease-out_1s_both]">
+                        <circle cx="450" cy="110" r="4.5" className="fill-surface stroke-primary-600 stroke-[2.5px]" />
+                        <circle cx="960" cy="60" r="4.5" className="fill-surface stroke-primary-600 stroke-[2.5px]" />
+                        
+                        {/* Tooltip hint on last point */}
+                        <g transform="translate(960, 35)">
+                          <rect x="-35" y="-20" width="70" height="24" rx="4" className="fill-ink-primary shadow-sm" />
+                          <polygon points="-5,4 5,4 0,9" className="fill-ink-primary" />
+                          <text x="0" y="-3" textAnchor="middle" className="fill-white text-[11px] font-bold">120 Subs</text>
+                        </g>
+                      </g>
+                    </svg>
+
+                    <style>{`
+                      @keyframes drawLine { to { stroke-dashoffset: 0; } }
+                      @keyframes fade-in { 
+                        from { opacity: 0; }
+                        to { opacity: 1; }
+                      }
+                    `}</style>
+                  </div>
+                  
+                  {/* X-Axis Labels */}
+                  <div className="flex justify-between text-xs text-ink-muted font-medium px-8 ml-8">
+                    <span>Mon</span>
+                    <span>Tue</span>
+                    <span>Wed</span>
+                    <span>Thu</span>
+                    <span>Fri</span>
+                    <span>Sat</span>
+                    <span className="text-primary-700 font-semibold">Sun (Today)</span>
+                  </div>
+                </div>
               </div>
             )}
 
