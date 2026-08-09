@@ -244,11 +244,11 @@ router.get('/sessions/:id/students', requireAuth, requireRole(['teacher', 'admin
       
     if (error) throw error;
 
-    // Filter by _parent_session_id
+    // Filter by _parent_session_id or _exam_session_id
     const students = (data || []).filter(row => {
       try {
         const m = JSON.parse(row.transcript || '{}');
-        return m._parent_session_id === req.params.id;
+        return m._parent_session_id === req.params.id || m._exam_session_id === req.params.id;
       } catch { return false; }
     });
     

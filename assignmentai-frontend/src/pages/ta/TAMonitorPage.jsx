@@ -95,19 +95,26 @@ export default function TAMonitorPage() {
     // Join the exam session room (viva_exam_sessions ID)
     socketRef.current.emit('join_viva', { sessionId, role: 'ta' });
 
-    // Student joined
+    // Student joined (or re-announced)
     socketRef.current.on('student_joined', (data) => {
-      setActiveStudents(prev => ({
-        ...prev,
-        [data.socketId]: {
-          socketId: data.socketId,
-          studentId: data.studentId,
-          name: data.studentName || `Student (${data.socketId.slice(0, 6)})`,
-          transcript: [],
-          warnings: 0,
-          lastActive: new Date(),
-        }
-      }));
+      setActiveStudents(prev => {
+        const existingKey = Object.keys(prev).find(k => 
+          prev[k].studentId === data.studentId || 
+          prev[k].dbId === data.sessionId || 
+          k === data.sessionId
+        );
+        const keyToUse = existingKey || data.socketId;
+
+        return {
+          ...prev,
+          [keyToUse]: {
+            ...(prev[keyToUse] || { transcript: [], warnings: 0, lastActive: new Date() }),
+            socketId: data.socketId,
+            studentId: data.studentId,
+            name: data.studentName || prev[keyToUse]?.name || `Student (${data.socketId.slice(0, 6)})`,
+          }
+        };
+      });
     });
 
     // Live transcript (submitted)

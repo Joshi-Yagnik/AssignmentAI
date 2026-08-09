@@ -60,20 +60,27 @@ export default function TeacherVivaMonitorPage() {
     // Teacher joins the session room to receive all student events
     socketRef.current.emit('join_viva', { sessionId, role: 'teacher' });
 
-    // A new student connected to the room
+    // Student joined (or re-announced)
     socketRef.current.on('student_joined', (data) => {
-      setActiveStudents(prev => ({
-        ...prev,
-        [data.socketId]: {
-          socketId: data.socketId,
-          name: data.studentName || `Student (${data.socketId.slice(0, 6)})`,
-          transcript: 'Waiting for student to speak...',
-          warnings: 0,
-          violations: [],
-          joinedAt: new Date(data.joinedAt),
-          lastActive: new Date(),
-        }
-      }));
+      setActiveStudents(prev => {
+        const existingKey = Object.keys(prev).find(k => 
+          prev[k].studentId === data.studentId || 
+          prev[k].dbId === data.sessionId || 
+          k === data.sessionId
+        );
+        const keyToUse = existingKey || data.socketId;
+
+        return {
+          ...prev,
+          [keyToUse]: {
+            ...(prev[keyToUse] || { transcript: 'Waiting for student to speak...', warnings: 0, violations: [], joinedAt: new Date(data.joinedAt) }),
+            socketId: data.socketId,
+            studentId: data.studentId,
+            name: data.studentName || prev[keyToUse]?.name || `Student (${data.socketId.slice(0, 6)})`,
+            lastActive: new Date(),
+          }
+        };
+      });
       toast({ type: 'info', title: 'Student Joined', message: `${data.studentName || 'A student'} has joined the session.` });
     });
 

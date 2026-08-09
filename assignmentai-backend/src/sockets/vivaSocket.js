@@ -2,6 +2,18 @@ module.exports = function(io) {
   io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id}`);
 
+    // Re-announce presence for late-joining monitors
+    socket.on('student_present', (data) => {
+      // data: { sessionId, studentName, studentId }
+      socket.to(data.sessionId).emit('student_joined', {
+        socketId: socket.id,
+        studentName: data.studentName || `Student (${socket.id.slice(0, 6)})`,
+        sessionId: data.sessionId,
+        studentId: data.studentId || null,
+        joinedAt: new Date(),
+      });
+    });
+
     // Join a specific viva session room
     // data: { sessionId, studentName? (optional identity for teacher monitor) }
     socket.on('join_viva', (data) => {
@@ -15,8 +27,12 @@ module.exports = function(io) {
           socketId: socket.id,
           studentName: studentName || `Student (${socket.id.slice(0, 6)})`,
           sessionId,
+          studentId: data.studentId || null,
           joinedAt: new Date(),
         });
+      } else if (role === 'teacher' || role === 'ta') {
+        // Ask students to re-announce themselves to the new monitor
+        socket.to(sessionId).emit('monitor_joined', { monitorSocketId: socket.id });
       }
     });
 

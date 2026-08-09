@@ -126,6 +126,22 @@ export default function VivaExamPage() {
       socketRef.current.emit('join_viva', { sessionId: examSessionId, studentName, role: 'student', studentId: user?.id });
     }
 
+    // When a TA/Teacher joins mid-session, they need our socket ID
+    socketRef.current.on('monitor_joined', () => {
+      socketRef.current.emit('student_present', {
+        sessionId: templateSessionId,
+        studentName,
+        studentId: user?.id
+      });
+      if (examSessionId && examSessionId !== templateSessionId) {
+        socketRef.current.emit('student_present', {
+          sessionId: examSessionId,
+          studentName,
+          studentId: user?.id
+        });
+      }
+    });
+
     // Handle automated status changes and notifications
     socketRef.current.on('viva_status_changed', (data) => {
       if (data.status === 'live') {
