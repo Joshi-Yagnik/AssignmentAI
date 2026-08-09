@@ -459,7 +459,7 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
     // Also check old viva_sessions for AI report AND result_declared status
     const { data: legacySessions } = await supabaseAdmin
       .from('viva_sessions')
-      .select('id, student_id, ai_report, result_declared, final_score')
+      .select('id, student_id, ai_report, result_declared, final_score, transcript')
       .is('submission_id', null)
       .neq('student_id', null);
 
@@ -471,11 +471,19 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
     const resultDeclaredMap = {};
     (legacySessions || []).forEach(ls => {
       if (ls.student_id) {
-        sessionIdMap[ls.student_id] = ls.id;
-        resultDeclaredMap[ls.student_id] = ls.result_declared || false;
-        if (ls.ai_report) {
-          const report = typeof ls.ai_report === 'string' ? JSON.parse(ls.ai_report) : ls.ai_report;
-          aiScoreMap[ls.student_id] = report?.total_score ?? null;
+        let belongsToThisSession = false;
+        try {
+          const meta = JSON.parse(ls.transcript || '{}');
+          belongsToThisSession = meta._exam_session_id === sessionId || meta._parent_session_id === sessionId;
+        } catch(e) {}
+
+        if (belongsToThisSession) {
+          sessionIdMap[ls.student_id] = ls.id;
+          resultDeclaredMap[ls.student_id] = ls.result_declared || false;
+          if (ls.ai_report) {
+            const report = typeof ls.ai_report === 'string' ? JSON.parse(ls.ai_report) : ls.ai_report;
+            aiScoreMap[ls.student_id] = report?.total_score ?? null;
+          }
         }
       }
     });
