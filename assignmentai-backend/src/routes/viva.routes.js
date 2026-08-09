@@ -482,7 +482,7 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
           resultDeclaredMap[ls.student_id] = ls.result_declared || false;
           if (ls.ai_report) {
             const report = typeof ls.ai_report === 'string' ? JSON.parse(ls.ai_report) : ls.ai_report;
-            aiScoreMap[ls.student_id] = report?.total_score ?? null;
+            aiScoreMap[ls.student_id] = (report?.overall_score || report?.total_score) ?? null;
           }
         }
       }
@@ -1009,7 +1009,7 @@ router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), asy
         sessionId: req.params.id,
         studentId: session.student_id,
         studentName,
-        aiScore: report.total_score,
+        aiScore: report.overall_score || report.total_score,
         maxScore: report.max_score || 100,
         subject: session.subject,
       };

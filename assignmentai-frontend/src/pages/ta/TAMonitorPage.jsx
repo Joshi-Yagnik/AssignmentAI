@@ -7,7 +7,7 @@ import io from 'socket.io-client';
 import {
   Users, AlertTriangle, MessageSquare, Clock,
   CheckCircle2, Send, Eye, EyeOff, Star, Video, VideoOff,
-  Flag, ShieldAlert, ShieldCheck, Shield, Mic, MicOff
+  Flag, ShieldAlert, ShieldCheck, Shield, Mic, MicOff, X
 } from 'lucide-react';
 
 // Warning type icons and labels
@@ -74,6 +74,7 @@ export default function TAMonitorPage() {
                 transcript: [],
                 warnings: stRow.warnings_count || 0,
                 status: stRow.status,
+                online: false,
                 lastActive: stRow.scheduled_time
               };
               // Try to parse existing transcript
@@ -108,10 +109,12 @@ export default function TAMonitorPage() {
         return {
           ...prev,
           [keyToUse]: {
-            ...(prev[keyToUse] || { transcript: [], warnings: 0, lastActive: new Date() }),
+            ...(prev[existingKey] || prev[data.socketId] || {}),
             socketId: data.socketId,
-            studentId: data.studentId,
-            name: data.studentName || prev[keyToUse]?.name || `Student (${data.socketId.slice(0, 6)})`,
+            studentId: data.studentId || (prev[existingKey]?.studentId),
+            name: data.studentName || prev[existingKey]?.name || 'Student',
+            online: true,
+            status: 'active'
           }
         };
       });
@@ -249,7 +252,30 @@ export default function TAMonitorPage() {
     if (session?.legacy_session_id && session.legacy_session_id !== sessionId && socketRef.current) {
       socketRef.current.emit('join_viva', { sessionId: session.legacy_session_id, role: 'ta' });
     }
-  }, [session, sessionId]);
+  }, [session?.legacy_session_id, sessionId]);
+
+  // Request streams for all ungraded active students
+  useEffect(() => {
+    if (!socketRef.current) return;
+    Object.values(activeStudents).forEach(st => {
+      const streamKey = st.studentId || st.socketId;
+      if (st.online && !liveStreams[streamKey] && !submittedScores[st.socketId]) {
+        socketRef.current.emit('webrtc_request_stream_broadcast', { 
+          sessionId: sessionId,
+          targetStudentId: st.studentId 
+        });
+      }
+    });
+  }, [activeStudents, submittedScores, sessionId, liveStreams]); // Depend on activeStudents changes
+
+  const requestStream = (studentId) => {
+    if (socketRef.current && studentId) {
+      socketRef.current.emit('webrtc_request_stream_broadcast', { 
+        sessionId: sessionId,
+        targetStudentId: studentId 
+      });
+    }
+  };
 
   const handleScoreChange = (socketId, field, value) => {
     setScores(prev => ({
@@ -272,6 +298,7 @@ export default function TAMonitorPage() {
       });
       setSubmittedScores(prev => ({ ...prev, [student.socketId]: true }));
       toast({ type: 'success', title: `Score submitted for ${student.name}` });
+      setSelectedStudent(null);
     } catch (err) {
       toast({ type: 'error', title: 'Failed to submit score', message: err?.response?.data?.error || '' });
     } finally {
@@ -296,26 +323,8 @@ export default function TAMonitorPage() {
     return (flaggedAnswers[socketId] || []).some(f => f.index === msgIndex);
   };
 
-  // Request the student's WebRTC stream whenever selected student changes
-  useEffect(() => {
-    if (!selected?.socketId || !socketRef.current) return;
-    if (liveStreams[selected.socketId]) {
-      if (liveVideoRef.current) liveVideoRef.current.srcObject = liveStreams[selected.socketId];
-      return;
-    }
-    socketRef.current.emit('webrtc_request_stream_broadcast', { 
-      sessionId: sessionId,
-      targetStudentId: selected.studentId 
-    });
-  }, [selected?.socketId]);
-
-  // Attach stream to video element when it becomes available
-  useEffect(() => {
-    const streamKey = selected?.studentId || selected?.socketId;
-    if (streamKey && liveStreams[streamKey] && liveVideoRef.current) {
-      liveVideoRef.current.srcObject = liveStreams[streamKey];
-    }
-  }, [liveStreams, selected?.studentId, selected?.socketId]);
+  // Filter out students who have been graded
+  const gridStudents = studentList.filter(s => !submittedScores[s.socketId]);
 
   return (
     <>
@@ -324,7 +333,7 @@ export default function TAMonitorPage() {
         subtitle={session?.title || 'Monitoring session...'}
       />
 
-      <main className="p-4 md:p-6 max-w-7xl mx-auto w-full flex flex-col gap-6 relative z-0">
+      <main className="p-4 md:p-6 max-w-[1600px] mx-auto w-full flex flex-col gap-6 relative z-0">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-success/5 pointer-events-none -z-10 rounded-3xl hidden md:block"></div>
 
         {/* Session info banner */}
@@ -348,285 +357,299 @@ export default function TAMonitorPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Student list */}
-          <div className="flex flex-col gap-4">
-            <h3 className="font-semibold text-ink-primary text-label-md">
-              Active Students ({studentList.length})
-            </h3>
+        {/* Multi-Camera Grid */}
+        <div>
+          <h3 className="font-semibold text-ink-primary text-label-md mb-4 flex items-center justify-between">
+            <span>Ungraded Active Students ({gridStudents.length})</span>
+          </h3>
 
-            {studentList.length === 0 ? (
-              <div className="card p-8 text-center text-ink-muted flex flex-col items-center justify-center bg-white/60 backdrop-blur-sm border-dashed border-2 border-border/80">
-                <div className="w-16 h-16 rounded-full bg-surface-high flex items-center justify-center mb-4 shadow-inner relative">
-                  <span className="absolute inset-0 rounded-full border-2 border-primary/20 animate-ping opacity-30"></span>
-                  <Users className="w-7 h-7 text-primary/40" />
-                </div>
-                <p className="font-bold text-ink-primary">Waiting for students</p>
-                <p className="text-xs mt-1 max-w-[200px]">Students will appear here automatically when they join.</p>
+          {gridStudents.length === 0 ? (
+            <div className="card p-12 text-center text-ink-muted flex flex-col items-center justify-center bg-white/60 backdrop-blur-sm border-dashed border-2 border-border/80 min-h-[300px]">
+              <div className="w-16 h-16 rounded-full bg-surface-high flex items-center justify-center mb-4 shadow-inner relative">
+                <span className="absolute inset-0 rounded-full border-2 border-primary/20 animate-ping opacity-30"></span>
+                <Users className="w-7 h-7 text-primary/40" />
               </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {studentList.map(student => {
-                  const isSelected = selectedStudent === student.socketId;
-                  const isDone = submittedScores[student.socketId];
-                  const risk = getRisk(student.warnings || 0);
-                  const isSpeaking = !!student.liveDraft;
-                  const RiskIcon = risk.icon;
-                  return (
-                    <div
-                      key={student.socketId}
-                      className={`card cursor-pointer p-3 transition-all border-2 ${
-                        isSelected ? 'border-primary shadow-md shadow-primary/10' : 'border-transparent hover:border-border'
-                      }`}
-                      onClick={() => setSelectedStudent(student.socketId)}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="relative">
-                          <div className="w-9 h-9 rounded-full bg-primary/10 text-primary font-bold text-xs flex items-center justify-center shrink-0">
-                            {student.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
-                          </div>
-                          {isSpeaking && (
-                            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-success rounded-full border-2 border-surface-base animate-pulse" title="Speaking now" />
+              <p className="font-bold text-ink-primary">No active students to grade</p>
+              <p className="text-sm mt-1 max-w-[300px]">
+                {studentList.length > 0 
+                  ? "All connected students have been graded."
+                  : "Students will appear here automatically when they join."}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {gridStudents.map(student => {
+                const streamKey = student.studentId || student.socketId;
+                const stream = liveStreams[streamKey];
+                const risk = getRisk(student.warnings || 0);
+                const RiskIcon = risk.icon;
+                const isSpeaking = !!student.liveDraft;
+
+                return (
+                  <div key={student.socketId} className="card overflow-hidden border border-border/80 shadow-sm flex flex-col">
+                    {/* Camera Feed Area */}
+                    <div className="relative bg-surface-high aspect-video">
+                      {stream ? (
+                        <video
+                          autoPlay
+                          playsInline
+                          muted
+                          className="w-full h-full object-cover"
+                          ref={el => { if (el && stream) el.srcObject = stream; }}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-ink-muted bg-surface/50 gap-2">
+                          <VideoOff className="w-8 h-8 opacity-40 mb-1" />
+                          {student.online ? (
+                            <>
+                              <p className="text-xs font-medium">Connecting camera...</p>
+                              <button 
+                                onClick={() => requestStream(student.studentId)}
+                                className="btn btn-secondary btn-xs mt-1"
+                              >
+                                Retry
+                              </button>
+                            </>
+                          ) : (
+                            <p className="text-xs font-medium">Offline</p>
                           )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm text-ink-primary truncate">{student.name}</p>
-                          <div className={`flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full w-fit mt-0.5 ${risk.bg} ${risk.text}`}>
-                            <RiskIcon className="w-2.5 h-2.5" />
-                            {risk.label}
-                            {student.warnings > 0 && ` (${student.warnings})`}
-                          </div>
-                          {student.aiScore != null && (
-                            <p className="text-[11px] font-bold text-success mt-0.5">
-                              AI: {student.aiScore}/{student.maxScore}
-                            </p>
-                          )}
-                        </div>
-                        {student.status === 'graded'
-                          ? <Star className="w-4 h-4 text-warning shrink-0" />
-                          : isDone && <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
-                        }
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Right: Transcript + Score */}
-          <div className="col-span-1 lg:col-span-2 flex flex-col gap-4">
-            {!selected ? (
-              <div className="card p-16 flex flex-col items-center justify-center text-ink-muted h-full min-h-[400px] bg-white/60 backdrop-blur-sm border-dashed border-2 border-border/80">
-                <div className="w-24 h-24 rounded-full bg-surface-high flex items-center justify-center mb-6 shadow-inner">
-                  <Eye className="w-10 h-10 text-primary/30" />
-                </div>
-                <h3 className="text-xl font-bold text-ink-primary mb-2">Select a student</h3>
-                <p className="text-sm text-center max-w-md text-ink-secondary">
-                  Click on any active student from the list on the left to view their live camera feed, transcript, and submit scores.
-                </p>
-              </div>
-            ) : (
-              <>
-                {/* Live Camera Feed */}
-                <div className="card flex flex-col gap-3 p-5 border border-border/80 shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-ink-primary flex items-center gap-2">
-                      <div className="p-1.5 bg-success/10 rounded-lg">
-                        <Video className="w-4 h-4 text-success" />
-                      </div>
-                      Live Camera — {selected.name}
-                    </h3>
-                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-success text-white uppercase tracking-wider flex items-center gap-1.5 shadow-sm shadow-success/20">
-                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse inline-block" />
-                      LIVE NOW
-                    </span>
-                  </div>
-                  <div className="relative bg-surface-high/50 rounded-xl overflow-hidden ring-1 ring-border/50 shadow-inner" style={{ aspectRatio: '16/9' }}>
-                    {liveStreams[selected.studentId] || liveStreams[selected.socketId] ? (
-                      <video
-                        ref={liveVideoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-ink-muted bg-surface/50 gap-3">
-                        <div className="w-16 h-16 rounded-full bg-surface-high flex items-center justify-center relative mb-2">
-                          <span className="absolute inset-0 rounded-full border-2 border-primary/20 animate-ping opacity-50"></span>
-                          <VideoOff className="w-6 h-6 opacity-50" />
-                        </div>
-                        <p className="text-sm font-medium mb-1">Connecting to student's camera...</p>
-                        <button 
-                          onClick={() => {
-                            if (socketRef.current && selected?.studentId) {
-                              socketRef.current.emit('webrtc_request_stream_broadcast', { 
-                                sessionId: sessionId,
-                                targetStudentId: selected.studentId 
-                              });
-                            }
-                          }}
-                          className="btn btn-secondary btn-sm px-4 shadow-sm"
-                        >
-                          Retry Connection
-                        </button>
-                        {selected?.socketId?.length > 25 && (
-                          <p className="text-[10px] text-danger max-w-xs text-center mt-2 font-medium">
-                            Student may be offline. If they are online, please ask them to refresh their page once.
-                          </p>
+                      )}
+                      
+                      {/* Live Badge & Speaking Indicator */}
+                      <div className="absolute top-2 right-2 flex gap-1.5">
+                        {isSpeaking && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/90 text-white backdrop-blur flex items-center shadow-sm">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse mr-1 inline-block" />
+                            Speaking
+                          </span>
+                        )}
+                        {student.online ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-success/90 text-white backdrop-blur uppercase flex items-center shadow-sm">
+                            <span className="w-1 h-1 rounded-full bg-white mr-1 inline-block" />
+                            Live
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-ink-muted/90 text-white backdrop-blur uppercase flex items-center shadow-sm">
+                            Offline
+                          </span>
                         )}
                       </div>
-                    )}
-                  </div>
-                </div>
+                    </div>
 
-                {/* Transcript */}
-                <div className="card flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-ink-primary flex items-center gap-2">
-                      <MessageSquare className="w-4 h-4 text-primary" />
-                      {selected.name} — Live Transcript
-                    </h3>
-                    {selected.warnings > 0 && (
-                      <span className="flex items-center gap-1 text-danger text-label-sm font-semibold">
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        {selected.warnings} Warning{selected.warnings > 1 ? 's' : ''}
-                      </span>
-                    )}
-                  </div>
-                  <div className="bg-surface-low rounded-xl p-4 min-h-[200px] max-h-[340px] overflow-y-auto flex flex-col gap-3">
-                    {(!selected.transcript || selected.transcript.length === 0) ? (
-                      <p className="text-ink-muted text-sm italic text-center mt-8">
-                        Waiting for student to speak...
-                      </p>
-                    ) : (
-                      selected.transcript.map((msg, i) => {
-                        const isStudent = msg.role === 'user' || msg.role === 'student';
-                        const flagged = isStudent && isFlagged(selected.socketId, i);
-                        return (
-                          <div key={i} className={`flex ${isStudent ? 'justify-end' : 'justify-start'} group`}>
-                            <div className={`relative max-w-[80%] rounded-xl px-3 py-2 text-sm ${
-                              flagged
-                                ? 'bg-danger/10 border border-danger/30 text-ink-primary'
-                                : isStudent
-                                  ? 'bg-primary text-white'
-                                  : 'bg-surface-high text-ink-primary'
-                            }`}>
-                              <p className="font-semibold text-[10px] opacity-70 mb-0.5">
-                                {isStudent ? 'Student' : 'AI Question'}
-                                {flagged && <span className="ml-1 text-danger">🚩 Flagged</span>}
-                              </p>
-                              <p>{msg.content}</p>
-                              {isStudent && (
-                                <button
-                                  onClick={() => toggleFlag(selected.socketId, i, msg.content)}
-                                  className={`absolute -top-2 -left-2 w-5 h-5 rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity ${
-                                    flagged ? 'bg-danger text-white' : 'bg-surface-high border border-border text-ink-muted hover:bg-danger/10 hover:text-danger'
-                                  }`}
-                                  title={flagged ? 'Remove flag' : 'Flag this answer'}
-                                >
-                                  🚩
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                    {selected.liveDraft && (
-                      <div className="flex justify-end opacity-70">
-                        <div className="max-w-[80%] rounded-xl px-3 py-2 text-sm bg-primary/20 text-primary border border-primary/30">
-                          <p className="font-semibold text-[10px] opacity-70 mb-0.5">Student (Speaking...)</p>
-                          <p>{selected.liveDraft}</p>
+                    {/* Info Area */}
+                    <div className="p-3 flex flex-col gap-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-bold text-ink-primary truncate text-sm">{student.name}</p>
+                          <p className="text-[10px] text-ink-secondary truncate">{student.studentId}</p>
+                        </div>
+                        <div className={`flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${risk.bg} ${risk.text}`}>
+                          <RiskIcon className="w-2.5 h-2.5" />
+                          {risk.label}
+                          {student.warnings > 0 && ` (${student.warnings})`}
                         </div>
                       </div>
-                    )}
-                  </div>
-                </div>
 
-                {/* Security Events Timeline */}
-                {(warningEvents[selected.socketId] || []).length > 0 && (
-                  <div className="card flex flex-col gap-2 p-4 border-l-4 border-l-danger">
-                    <h3 className="font-semibold text-danger flex items-center gap-2 text-sm">
-                      <ShieldAlert className="w-4 h-4" />
-                      Security Events ({(warningEvents[selected.socketId] || []).length})
-                    </h3>
-                    <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto">
-                      {[...(warningEvents[selected.socketId] || [])].reverse().map((ev, i) => {
-                        const meta = WARNING_META[ev.type] || WARNING_META.default;
-                        return (
-                          <div key={i} className="flex items-center gap-2 text-xs text-ink-secondary">
-                            <span>{meta.icon}</span>
-                            <span className={`font-semibold ${meta.color}`}>{meta.label}</span>
-                            <span className="text-ink-muted ml-auto">
-                              {ev.time.toLocaleTimeString()}
-                            </span>
-                          </div>
-                        );
-                      })}
+                      {student.aiScore != null && (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="text-ink-secondary font-medium">AI Estimate:</span>
+                          <span className="text-success font-bold">{student.aiScore}/{student.maxScore}</span>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => setSelectedStudent(student.socketId)}
+                        className="btn btn-primary w-full mt-auto text-sm py-2 shadow-sm"
+                      >
+                        Evaluate
+                      </button>
                     </div>
                   </div>
-                )}
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </main>
 
-                {/* Score form */}
-                <div className="card flex flex-col gap-3">
-                  <h3 className="font-semibold text-ink-primary flex items-center gap-2">
-                    <Star className="w-4 h-4 text-warning" />
-                    Submit Score for {selected.name}
-                    {(flaggedAnswers[selected.socketId] || []).length > 0 && (
-                      <span className="ml-auto text-[10px] bg-danger/10 text-danger px-2 py-0.5 rounded-full font-semibold">
-                        🚩 {(flaggedAnswers[selected.socketId] || []).length} Flagged Answer{(flaggedAnswers[selected.socketId] || []).length > 1 ? 's' : ''}
-                      </span>
-                    )}
-                  </h3>
-                  <div className="grid grid-cols-2 gap-4">
+      {/* Grading Modal */}
+      {selectedStudent && selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-primary/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-slide-up ring-1 ring-border border-2 border-surface-high">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-border/50 bg-surface-low">
+              <h3 className="font-bold text-ink-primary text-lg flex items-center gap-2">
+                Evaluate: {selected.name}
+              </h3>
+              <button 
+                onClick={() => setSelectedStudent(null)}
+                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-high text-ink-secondary transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: Split view */}
+            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+              {/* Left: Transcript */}
+              <div className="flex-1 flex flex-col border-r border-border/50 overflow-hidden">
+                <div className="p-3 border-b border-border/50 bg-surface-low/50 flex items-center justify-between">
+                  <span className="font-semibold text-ink-primary text-sm flex items-center gap-1.5">
+                    <MessageSquare className="w-4 h-4 text-primary" />
+                    Live Transcript
+                  </span>
+                  {selected.warnings > 0 && (
+                    <span className="flex items-center gap-1 text-danger text-[11px] font-semibold bg-danger/10 px-2 py-0.5 rounded-full">
+                      <AlertTriangle className="w-3 h-3" />
+                      {selected.warnings} Warning{selected.warnings > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 bg-surface">
+                  {(!selected.transcript || selected.transcript.length === 0) ? (
+                    <div className="flex-1 flex items-center justify-center text-ink-muted text-sm italic">
+                      Waiting for student to speak...
+                    </div>
+                  ) : (
+                    selected.transcript.map((msg, i) => {
+                      const isStudent = msg.role === 'user' || msg.role === 'student';
+                      const flagged = isStudent && isFlagged(selected.socketId, i);
+                      return (
+                        <div key={i} className={`flex ${isStudent ? 'justify-end' : 'justify-start'} group`}>
+                          <div className={`relative max-w-[85%] rounded-xl px-3 py-2 text-sm ${
+                            flagged
+                              ? 'bg-danger/10 border border-danger/30 text-ink-primary'
+                              : isStudent
+                                ? 'bg-primary text-white'
+                                : 'bg-surface-high text-ink-primary'
+                          }`}>
+                            <p className="font-semibold text-[10px] opacity-70 mb-0.5">
+                              {isStudent ? 'Student' : 'AI Question'}
+                              {flagged && <span className="ml-1 text-danger">🚩 Flagged</span>}
+                            </p>
+                            <p>{msg.content}</p>
+                            {isStudent && (
+                              <button
+                                onClick={() => toggleFlag(selected.socketId, i, msg.content)}
+                                className={`absolute -top-2 -left-2 w-5 h-5 rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity ${
+                                  flagged ? 'bg-danger text-white' : 'bg-surface-high border border-border text-ink-muted hover:bg-danger/10 hover:text-danger'
+                                }`}
+                                title={flagged ? 'Remove flag' : 'Flag this answer'}
+                              >
+                                🚩
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                  {selected.liveDraft && (
+                    <div className="flex justify-end opacity-70">
+                      <div className="max-w-[85%] rounded-xl px-3 py-2 text-sm bg-primary/20 text-primary border border-primary/30">
+                        <p className="font-semibold text-[10px] opacity-70 mb-0.5">Student (Speaking...)</p>
+                        <p>{selected.liveDraft}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right: Scoring Form & Events */}
+              <div className="w-full md:w-80 flex flex-col bg-surface-low overflow-y-auto">
+                <div className="p-4 flex flex-col gap-5">
+                  {/* Security Events Timeline */}
+                  {(warningEvents[selected.socketId] || []).length > 0 && (
+                    <div className="flex flex-col gap-2 p-3 border border-danger/30 bg-danger/5 rounded-xl">
+                      <h3 className="font-semibold text-danger flex items-center gap-1.5 text-xs">
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        Security Events ({(warningEvents[selected.socketId] || []).length})
+                      </h3>
+                      <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
+                        {[...(warningEvents[selected.socketId] || [])].reverse().map((ev, i) => {
+                          const meta = WARNING_META[ev.type] || WARNING_META.default;
+                          return (
+                            <div key={i} className="flex items-center gap-1.5 text-[11px] text-ink-secondary">
+                              <span>{meta.icon}</span>
+                              <span className={`font-semibold ${meta.color}`}>{meta.label}</span>
+                              <span className="text-ink-muted ml-auto">
+                                {ev.time.toLocaleTimeString()}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Score Form */}
+                  <div className="flex flex-col gap-3">
+                    <h3 className="font-bold text-ink-primary flex items-center gap-1.5">
+                      <Star className="w-4 h-4 text-warning" />
+                      Score Details
+                    </h3>
+                    
                     <div>
-                      <label className="label">Score (0–100)</label>
+                      <label className="label text-xs">Score out of 100</label>
                       <input
                         type="number"
                         min="0"
                         max="100"
                         className="input"
-                        placeholder="e.g. 78"
+                        placeholder="e.g. 85"
                         value={scores[selected.socketId]?.score ?? ''}
                         onChange={e => handleScoreChange(selected.socketId, 'score', e.target.value)}
                         disabled={submittedScores[selected.socketId]}
                       />
                     </div>
+                    
                     <div>
-                      <label className="label">Notes (optional)</label>
-                      <input
-                        type="text"
-                        className="input"
-                        placeholder="Any observations..."
+                      <label className="label text-xs flex justify-between">
+                        TA Notes
+                        {(flaggedAnswers[selected.socketId] || []).length > 0 && (
+                          <span className="text-[10px] text-danger font-semibold">
+                            ({(flaggedAnswers[selected.socketId] || []).length} flagged)
+                          </span>
+                        )}
+                      </label>
+                      <textarea
+                        className="input min-h-[80px] resize-none text-sm"
+                        placeholder="Private notes about performance..."
                         value={scores[selected.socketId]?.notes ?? ''}
                         onChange={e => handleScoreChange(selected.socketId, 'notes', e.target.value)}
                         disabled={submittedScores[selected.socketId]}
                       />
                     </div>
-                  </div>
-                  {submittedScores[selected.socketId] ? (
-                    <div className="flex items-center gap-2 text-success font-medium text-sm">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Score submitted successfully
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        onClick={() => setSelectedStudent(null)}
+                        className="btn btn-secondary flex-1 shadow-sm"
+                      >
+                        Close (Grade Later)
+                      </button>
+                      <button
+                        onClick={() => submitScore(selected)}
+                        disabled={
+                          submitting 
+                          || submittedScores[selected.socketId] 
+                          || scores[selected.socketId]?.score == null 
+                          || scores[selected.socketId]?.score === ''
+                        }
+                        className="btn btn-primary flex-1 shadow-md shadow-primary/20"
+                      >
+                        {submitting ? 'Submitting...' : 'Submit Score'}
+                        {!submitting && <Send className="w-4 h-4 ml-1.5 inline" />}
+                      </button>
                     </div>
-                  ) : (
-                    <button
-                      className="btn-primary self-end flex items-center gap-2"
-                      onClick={() => submitScore(selected)}
-                      disabled={submitting}
-                    >
-                      <Send className="w-4 h-4" />
-                      Submit Score
-                    </button>
-                  )}
+                  </div>
                 </div>
-              </>
-            )}
+              </div>
+            </div>
           </div>
         </div>
-      </main>
+      )}
     </>
   );
 }
