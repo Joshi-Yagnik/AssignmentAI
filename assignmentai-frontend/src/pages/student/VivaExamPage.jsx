@@ -161,7 +161,7 @@ export default function VivaExamPage() {
     // ── WebRTC: Respond to stream requests from TA / Teacher ──────────────────
     const ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-    socketRef.current.on('webrtc_request_stream', async ({ fromSocketId }) => {
+    const handleWebrtcRequest = async (fromSocketId) => {
       try {
         const pc = new RTCPeerConnection(ICE_SERVERS);
         peerConnectionsRef.current[fromSocketId] = pc;
@@ -184,9 +184,23 @@ export default function VivaExamPage() {
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        socketRef.current?.emit('webrtc_offer', { toSocketId: fromSocketId, sdp: offer });
+        socketRef.current?.emit('webrtc_offer', { 
+          toSocketId: fromSocketId, 
+          sdp: offer,
+          studentId: user?.id 
+        });
       } catch (err) {
         console.error('[WebRTC] Failed to create offer:', err);
+      }
+    };
+
+    socketRef.current.on('webrtc_request_stream', async ({ fromSocketId }) => {
+      handleWebrtcRequest(fromSocketId);
+    });
+
+    socketRef.current.on('webrtc_request_stream_broadcast', async ({ fromSocketId, targetStudentId }) => {
+      if (user?.id && targetStudentId === user.id) {
+        handleWebrtcRequest(fromSocketId);
       }
     });
 

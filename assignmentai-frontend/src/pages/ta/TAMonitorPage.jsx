@@ -199,11 +199,11 @@ export default function TAMonitorPage() {
     });
 
     // ── WebRTC: Receive stream from student ──────────────────────────────────
-    socketRef.current.on('webrtc_offer', async ({ fromSocketId, sdp }) => {
+    socketRef.current.on('webrtc_offer', async ({ fromSocketId, sdp, studentId }) => {
       try {
         const pc = new RTCPeerConnection(ICE_SERVERS);
         peerConnectionsRef.current[fromSocketId] = pc;
-
+        
         pc.onicecandidate = (event) => {
           if (event.candidate && socketRef.current) {
             socketRef.current.emit('webrtc_ice', {
@@ -214,7 +214,10 @@ export default function TAMonitorPage() {
         };
 
         pc.ontrack = (event) => {
-          setLiveStreams(prev => ({ ...prev, [fromSocketId]: event.streams[0] }));
+          setLiveStreams(prev => ({ 
+            ...prev, 
+            [studentId || fromSocketId]: event.streams[0] 
+          }));
         };
 
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -300,15 +303,19 @@ export default function TAMonitorPage() {
       if (liveVideoRef.current) liveVideoRef.current.srcObject = liveStreams[selected.socketId];
       return;
     }
-    socketRef.current.emit('webrtc_request_stream', { studentSocketId: selected.socketId });
+    socketRef.current.emit('webrtc_request_stream_broadcast', { 
+      sessionId: sessionId,
+      targetStudentId: selected.studentId 
+    });
   }, [selected?.socketId]);
 
   // Attach stream to video element when it becomes available
   useEffect(() => {
-    if (selected?.socketId && liveStreams[selected.socketId] && liveVideoRef.current) {
-      liveVideoRef.current.srcObject = liveStreams[selected.socketId];
+    const streamKey = selected?.studentId || selected?.socketId;
+    if (streamKey && liveStreams[streamKey] && liveVideoRef.current) {
+      liveVideoRef.current.srcObject = liveStreams[streamKey];
     }
-  }, [liveStreams, selected?.socketId]);
+  }, [liveStreams, selected?.studentId, selected?.socketId]);
 
   return (
     <>
@@ -436,7 +443,7 @@ export default function TAMonitorPage() {
                     </span>
                   </div>
                   <div className="relative bg-surface-high/50 rounded-xl overflow-hidden ring-1 ring-border/50 shadow-inner" style={{ aspectRatio: '16/9' }}>
-                    {liveStreams[selected.socketId] ? (
+                    {liveStreams[selected.studentId] || liveStreams[selected.socketId] ? (
                       <video
                         ref={liveVideoRef}
                         autoPlay
@@ -446,11 +453,29 @@ export default function TAMonitorPage() {
                       />
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-ink-muted bg-surface/50 gap-3">
-                        <div className="w-16 h-16 rounded-full bg-surface-high flex items-center justify-center relative">
+                        <div className="w-16 h-16 rounded-full bg-surface-high flex items-center justify-center relative mb-2">
                           <span className="absolute inset-0 rounded-full border-2 border-primary/20 animate-ping opacity-50"></span>
                           <VideoOff className="w-6 h-6 opacity-50" />
                         </div>
-                        <p className="text-sm font-medium">Connecting to student's camera...</p>
+                        <p className="text-sm font-medium mb-1">Connecting to student's camera...</p>
+                        <button 
+                          onClick={() => {
+                            if (socketRef.current && selected?.studentId) {
+                              socketRef.current.emit('webrtc_request_stream_broadcast', { 
+                                sessionId: sessionId,
+                                targetStudentId: selected.studentId 
+                              });
+                            }
+                          }}
+                          className="btn btn-secondary btn-sm px-4 shadow-sm"
+                        >
+                          Retry Connection
+                        </button>
+                        {selected?.socketId?.length > 25 && (
+                          <p className="text-[10px] text-danger max-w-xs text-center mt-2 font-medium">
+                            Student may be offline. If they are online, please ask them to refresh their page once.
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
