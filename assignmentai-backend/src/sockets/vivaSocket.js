@@ -26,6 +26,7 @@ module.exports = function(io) {
       io.to(data.sessionId).emit('teacher_transcript_live', {
         ...data,
         socketId: data.socketId || socket.id,
+        studentId: data.studentId || null,
         studentName: data.studentName || `Student (${socket.id.slice(0, 6)})`,
       });
     });
@@ -35,6 +36,7 @@ module.exports = function(io) {
       io.to(data.sessionId).emit('teacher_transcript_live_draft', {
         ...data,
         socketId: data.socketId || socket.id,
+        studentId: data.studentId || null,
         studentName: data.studentName || `Student (${socket.id.slice(0, 6)})`,
       });
     });
@@ -45,6 +47,7 @@ module.exports = function(io) {
       io.to(data.sessionId).emit('teacher_viva_warning', {
         ...data,
         socketId: data.socketId || socket.id,
+        studentId: data.studentId || null,
         studentName: data.studentName || `Student (${socket.id.slice(0, 6)})`,
       });
     });
@@ -55,6 +58,7 @@ module.exports = function(io) {
       io.to(data.sessionId).emit('teacher_viva_ended', {
         ...data,
         socketId: data.socketId || socket.id,
+        studentId: data.studentId || null,
         studentName: data.studentName || `Student (${socket.id.slice(0, 6)})`,
       });
     });

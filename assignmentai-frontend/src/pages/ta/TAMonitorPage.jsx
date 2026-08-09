@@ -56,6 +56,37 @@ export default function TAMonitorPage() {
         toast({ type: 'error', title: 'Session not found' });
         navigate('/ta');
       });
+
+    // Fetch existing students who might have joined before TA
+    api.get(`/viva/sessions/${sessionId}/students`)
+      .then(({ data }) => {
+        if (!data || !Array.isArray(data)) return;
+        setActiveStudents(prev => {
+          const next = { ...prev };
+          data.forEach(stRow => {
+            const key = stRow.id; 
+            if (!next[key]) {
+              next[key] = {
+                socketId: key, // fallback socketId to dbId
+                dbId: stRow.id,
+                studentId: stRow.student_id,
+                name: stRow.users?.first_name ? `${stRow.users.first_name} ${stRow.users.last_name}` : 'Student',
+                transcript: [],
+                warnings: stRow.warnings_count || 0,
+                status: stRow.status,
+                lastActive: stRow.scheduled_time
+              };
+              // Try to parse existing transcript
+              try {
+                const parsed = JSON.parse(stRow.transcript || '[]');
+                if (Array.isArray(parsed)) next[key].transcript = parsed;
+              } catch (e) {}
+            }
+          });
+          return next;
+        });
+      })
+      .catch(console.error);
   }, [sessionId, navigate, toast]);
 
   useEffect(() => {
@@ -81,14 +112,16 @@ export default function TAMonitorPage() {
 
     // Live transcript (submitted)
     socketRef.current.on('teacher_transcript_live', (data) => {
+      const key = data.socketId || data.sessionId;
       setActiveStudents(prev => {
-        if (!prev[data.socketId]) return prev;
         let parsed = [];
         try { parsed = JSON.parse(data.transcript || '[]'); } catch {}
         return {
           ...prev,
-          [data.socketId]: {
-            ...prev[data.socketId],
+          [key]: {
+            ...(prev[key] || { warnings: 0, name: data.studentName || 'Student' }),
+            socketId: key,
+            studentId: data.studentId || prev[key]?.studentId,
             transcript: parsed,
             liveDraft: '', // clear draft on submit
             lastActive: new Date(),
@@ -99,12 +132,14 @@ export default function TAMonitorPage() {
 
     // Live draft (typing/speaking)
     socketRef.current.on('teacher_transcript_live_draft', (data) => {
+      const key = data.socketId || data.sessionId;
       setActiveStudents(prev => {
-        if (!prev[data.socketId]) return prev;
         return {
           ...prev,
-          [data.socketId]: {
-            ...prev[data.socketId],
+          [key]: {
+            ...(prev[key] || { warnings: 0, name: data.studentName || 'Student' }),
+            socketId: key,
+            studentId: data.studentId || prev[key]?.studentId,
             liveDraft: data.draft,
             lastActive: new Date(),
           }
@@ -114,13 +149,15 @@ export default function TAMonitorPage() {
 
     // Warnings
     socketRef.current.on('teacher_viva_warning', (data) => {
+      const key = data.socketId || data.sessionId;
       setActiveStudents(prev => {
-        if (!prev[data.socketId]) return prev;
         return {
           ...prev,
-          [data.socketId]: {
-            ...prev[data.socketId],
-            warnings: (prev[data.socketId].warnings || 0) + 1,
+          [key]: {
+            ...(prev[key] || { warnings: 0, name: data.studentName || 'Student' }),
+            socketId: key,
+            studentId: data.studentId || prev[key]?.studentId,
+            warnings: ((prev[key]?.warnings) || 0) + 1,
             warningType: data.type || 'default',
           }
         };
@@ -128,8 +165,8 @@ export default function TAMonitorPage() {
       // Push to warning timeline
       setWarningEvents(prev => ({
         ...prev,
-        [data.socketId]: [
-          ...(prev[data.socketId] || []),
+        [key]: [
+          ...(prev[key] || []),
           { type: data.type || 'default', time: new Date() }
         ]
       }));
@@ -273,36 +310,45 @@ export default function TAMonitorPage() {
         subtitle={session?.title || 'Monitoring session...'}
       />
 
-      <main className="p-4 md:p-6 max-w-7xl mx-auto w-full flex flex-col gap-6">
+      <main className="p-4 md:p-6 max-w-7xl mx-auto w-full flex flex-col gap-6 relative z-0">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-success/5 pointer-events-none -z-10 rounded-3xl hidden md:block"></div>
 
         {/* Session info banner */}
-        <div className="card flex items-center gap-4 py-3 bg-gradient-to-r from-primary/5 to-transparent">
-          <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+        <div className="bg-gradient-to-r from-surface-high via-surface to-transparent rounded-2xl border border-border/60 p-5 flex items-center gap-5 shadow-sm relative overflow-hidden group backdrop-blur-sm">
+          <div className="absolute top-0 right-0 w-48 h-48 bg-success/5 rounded-full blur-3xl -mr-24 -mt-24 pointer-events-none"></div>
+          <div className="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center shrink-0 relative">
+            <span className="absolute inset-0 rounded-full border-2 border-success/20 animate-ping opacity-50 duration-1000"></span>
+            <span className="w-3 h-3 rounded-full bg-success shadow-[0_0_8px_rgba(34,197,94,0.8)]"></span>
+          </div>
           <div className="flex-1">
-            <p className="font-semibold text-ink-primary">
-              {session?.title || 'Viva Session'}
+            <p className="text-lg font-bold text-ink-primary">
+              {session?.title || 'Live Viva Monitoring'}
             </p>
-            <p className="text-label-sm text-ink-muted">
-              You are monitoring anonymously — students cannot see you
+            <p className="text-sm text-ink-secondary mt-0.5">
+              You are monitoring anonymously — students cannot see or hear you.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-label-sm text-ink-secondary">
+          <div className="flex items-center gap-2 bg-success/10 px-3 py-1.5 rounded-lg border border-success/20">
             <EyeOff className="w-4 h-4 text-success" />
-            <span className="text-success font-medium">Anonymous Mode</span>
+            <span className="text-success font-bold text-xs uppercase tracking-wider">Anonymous Mode</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left: Student list */}
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
             <h3 className="font-semibold text-ink-primary text-label-md">
               Active Students ({studentList.length})
             </h3>
 
             {studentList.length === 0 ? (
-              <div className="card p-6 text-center text-ink-muted">
-                <Users className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">Waiting for students to join...</p>
+              <div className="card p-8 text-center text-ink-muted flex flex-col items-center justify-center bg-white/60 backdrop-blur-sm border-dashed border-2 border-border/80">
+                <div className="w-16 h-16 rounded-full bg-surface-high flex items-center justify-center mb-4 shadow-inner relative">
+                  <span className="absolute inset-0 rounded-full border-2 border-primary/20 animate-ping opacity-30"></span>
+                  <Users className="w-7 h-7 text-primary/40" />
+                </div>
+                <p className="font-bold text-ink-primary">Waiting for students</p>
+                <p className="text-xs mt-1 max-w-[200px]">Students will appear here automatically when they join.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
@@ -355,27 +401,34 @@ export default function TAMonitorPage() {
           </div>
 
           {/* Right: Transcript + Score */}
-          <div className="col-span-2 flex flex-col gap-4">
+          <div className="col-span-1 lg:col-span-2 flex flex-col gap-4">
             {!selected ? (
-              <div className="card p-12 text-center text-ink-muted">
-                <Eye className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="font-medium">Select a student to monitor</p>
+              <div className="card p-16 flex flex-col items-center justify-center text-ink-muted h-full min-h-[400px] bg-white/60 backdrop-blur-sm border-dashed border-2 border-border/80">
+                <div className="w-24 h-24 rounded-full bg-surface-high flex items-center justify-center mb-6 shadow-inner">
+                  <Eye className="w-10 h-10 text-primary/30" />
+                </div>
+                <h3 className="text-xl font-bold text-ink-primary mb-2">Select a student</h3>
+                <p className="text-sm text-center max-w-md text-ink-secondary">
+                  Click on any active student from the list on the left to view their live camera feed, transcript, and submit scores.
+                </p>
               </div>
             ) : (
               <>
                 {/* Live Camera Feed */}
-                <div className="card flex flex-col gap-2 p-4">
+                <div className="card flex flex-col gap-3 p-5 border border-border/80 shadow-sm">
                   <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-ink-primary flex items-center gap-2">
-                      <Video className="w-4 h-4 text-success" />
+                    <h3 className="font-bold text-ink-primary flex items-center gap-2">
+                      <div className="p-1.5 bg-success/10 rounded-lg">
+                        <Video className="w-4 h-4 text-success" />
+                      </div>
                       Live Camera — {selected.name}
                     </h3>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse inline-block" />
-                      LIVE
+                    <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-success text-white uppercase tracking-wider flex items-center gap-1.5 shadow-sm shadow-success/20">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse inline-block" />
+                      LIVE NOW
                     </span>
                   </div>
-                  <div className="relative bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '16/9' }}>
+                  <div className="relative bg-surface-high/50 rounded-xl overflow-hidden ring-1 ring-border/50 shadow-inner" style={{ aspectRatio: '16/9' }}>
                     {liveStreams[selected.socketId] ? (
                       <video
                         ref={liveVideoRef}
@@ -385,9 +438,12 @@ export default function TAMonitorPage() {
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center text-white/40 gap-2">
-                        <VideoOff className="w-10 h-10" />
-                        <p className="text-sm">Connecting to camera...</p>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-ink-muted bg-surface/50 gap-3">
+                        <div className="w-16 h-16 rounded-full bg-surface-high flex items-center justify-center relative">
+                          <span className="absolute inset-0 rounded-full border-2 border-primary/20 animate-ping opacity-50"></span>
+                          <VideoOff className="w-6 h-6 opacity-50" />
+                        </div>
+                        <p className="text-sm font-medium">Connecting to student's camera...</p>
                       </div>
                     )}
                   </div>

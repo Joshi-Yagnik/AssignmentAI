@@ -235,7 +235,7 @@ router.get('/sessions/:id', requireAuth, async (req, res) => {
 });
 
 // ─── GET students who participated in a viva session ─────────────────────────
-router.get('/sessions/:id/students', requireAuth, requireRole(['teacher', 'admin']), async (req, res) => {
+router.get('/sessions/:id/students', requireAuth, requireRole(['teacher', 'admin', 'ta']), async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin
       .from('viva_sessions')

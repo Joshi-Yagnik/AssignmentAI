@@ -62,6 +62,7 @@ export default function VivaGradingQueuePage() {
   useEffect(() => {
     socketRef.current = io(SOCKET_URL);
     socketRef.current.emit('join_viva', { sessionId, role: 'teacher' });
+    
     socketRef.current.on('ta_score_submitted', (data) => {
       setQueue(prev => prev.map(s =>
         s.student_id === data.studentId
@@ -70,6 +71,16 @@ export default function VivaGradingQueuePage() {
       ));
       toast({ type: 'info', title: '📝 TA Score Updated', message: `${data.studentName}: ${data.taScore}/100` });
     });
+
+    socketRef.current.on('student_viva_graded', (data) => {
+      setQueue(prev => prev.map(s =>
+        s.student_id === data.studentId
+          ? { ...s, ai_score: data.aiScore }
+          : s
+      ));
+      toast({ type: 'success', title: '🎯 AI Grading Complete', message: `${data.studentName} scored ${data.aiScore}/${data.maxScore}` });
+    });
+
     return () => socketRef.current?.disconnect();
   }, [sessionId, toast]);
 

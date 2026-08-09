@@ -230,7 +230,7 @@ export default function VivaExamPage() {
       peerConnectionsRef.current = {};
       window.speechSynthesis.cancel();
     };
-  }, [sessionId, templateSessionId, studentName]);
+  }, [sessionId, templateSessionId, studentName, user?.id, examSessionId]);
 
   // Handle toggles
   useEffect(() => {
@@ -254,13 +254,18 @@ export default function VivaExamPage() {
   // Stream live answer draft
   useEffect(() => {
     if (socketRef.current && templateSessionId) {
-      socketRef.current.emit('viva_transcript_live_draft', {
+      const payload = {
         sessionId: templateSessionId,
         studentName,
+        studentId: user?.id,
         draft: answer
-      });
+      };
+      socketRef.current.emit('viva_transcript_live_draft', payload);
+      if (examSessionId && examSessionId !== templateSessionId) {
+        socketRef.current.emit('viva_transcript_live_draft', { ...payload, sessionId: examSessionId });
+      }
     }
-  }, [answer, templateSessionId, studentName]);
+  }, [answer, templateSessionId, studentName, user?.id, examSessionId]);
 
   // Handle auto-ending triggered by socket
   useEffect(() => {
@@ -281,11 +286,16 @@ export default function VivaExamPage() {
     
     // Send temp state to socket for teacher to monitor
     if (socketRef.current) {
-      socketRef.current.emit('viva_transcript_update', {
+      const payload = {
         sessionId: templateSessionId,
         studentName,
+        studentId: user?.id,
         transcript: JSON.stringify(newMessages)
-      });
+      };
+      socketRef.current.emit('viva_transcript_update', payload);
+      if (examSessionId && examSessionId !== templateSessionId) {
+        socketRef.current.emit('viva_transcript_update', { ...payload, sessionId: examSessionId });
+      }
     }
 
     try {
