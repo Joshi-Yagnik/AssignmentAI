@@ -266,6 +266,15 @@ Ensure your Redis instance is accessible and all `.env` variables are configured
 
 ---
 
+## 🌟 Mentors & Guidance
+
+We would like to express our special thanks to our mentors for their invaluable guidance and support throughout the development of this project:
+
+> 👨‍🏫 **Manan D Thakker**  
+> 👨‍🏫 **Hiten M Sadani**
+
+---
+
 ## 📄 License
 
 ISC License — see [package.json](./assignmentai-backend/package.json) for details.

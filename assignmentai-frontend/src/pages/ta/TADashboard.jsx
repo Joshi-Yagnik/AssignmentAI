@@ -157,65 +157,62 @@ export default function TADashboard() {
               <p className="text-sm mt-2 max-w-sm text-ink-secondary">You're all caught up! When a professor assigns you to monitor a viva session, it will appear here.</p>
             </div>
           ) : (
-            <div className="divide-y divide-border/50">
+            <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
               {sessions.map(s => {
                 const scheduledDate = s.scheduled_at ? new Date(s.scheduled_at) : null;
                 const isLive = s.status === 'live';
                 return (
-                  <div key={s.id} className="p-5 flex items-start sm:items-center gap-4 hover:bg-primary/5 transition-all duration-300 group relative overflow-hidden">
-                    {isLive && <div className="absolute left-0 top-0 bottom-0 w-1 bg-success shadow-[0_0_8px_rgba(34,197,94,0.5)]"></div>}
+                  <div key={s.id} className="relative flex flex-col gap-4 p-5 rounded-2xl border border-border/50 bg-white shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-300 group">
+                    {isLive && <div className="absolute top-0 left-0 right-0 h-1 bg-success shadow-[0_0_8px_rgba(34,197,94,0.5)] rounded-t-2xl"></div>}
                     
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3 ${isLive ? 'bg-gradient-to-br from-success/20 to-success/5 border border-success/20' : 'bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/10'}`}>
-                      <Video className={`w-5 h-5 ${isLive ? 'text-success' : 'text-primary'}`} />
-                    </div>
-                    
-                    <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-3 flex-wrap mb-1.5">
-                          <p className="text-base font-bold text-ink-primary truncate group-hover:text-primary transition-colors">{s.title}</p>
-                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 ${STATUS_STYLES[s.status] || ''}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm transition-transform duration-300 group-hover:scale-105 group-hover:rotate-3 ${isLive ? 'bg-gradient-to-br from-success/20 to-success/5 border border-success/20' : 'bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/10'}`}>
+                          <Video className={`w-6 h-6 ${isLive ? 'text-success' : 'text-primary'}`} />
+                        </div>
+                        <div>
+                          <p className="text-base font-bold text-ink-primary line-clamp-1 group-hover:text-primary transition-colors">{s.title}</p>
+                          <span className={`inline-block mt-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${STATUS_STYLES[s.status] || ''}`}>
                             {s.status}
                           </span>
                         </div>
-                        
-                        <div className="flex flex-wrap items-center gap-3 text-sm text-ink-secondary">
-                          {scheduledDate && (
-                            <span className="flex items-center gap-1.5 bg-surface-high/50 px-2 py-0.5 rounded-md border border-border/50">
-                              <Calendar className="w-3.5 h-3.5 opacity-70" />
-                              <span className="font-medium text-ink-primary">{scheduledDate.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                            </span>
-                          )}
-                          <span className="flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 opacity-70" />
-                            {s.duration_minutes} min
-                          </span>
-                          {(s.lab_batch || s.class_name) && (
-                            <span className="flex items-center gap-1.5">
-                              <Users className="w-3.5 h-3.5 opacity-70" />
-                              {s.class_name}{s.lab_batch ? ` / ${s.lab_batch}` : ''}
-                            </span>
-                          )}
-                        </div>
-                        
-                        <p className="text-sm text-ink-secondary mt-2.5 flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-100 to-indigo-50 text-indigo-700 flex items-center justify-center text-[10px] font-bold border border-indigo-200">
-                            {s.users?.first_name?.[0]}{s.users?.last_name?.[0]}
-                          </span>
-                          <span className="font-medium">Prof. {s.users?.first_name} {s.users?.last_name}</span>
-                        </p>
                       </div>
                       
                       {(isLive || s.status === 'scheduled') && (
-                        <div className="shrink-0 mt-2 sm:mt-0 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-all duration-300 transform sm:translate-x-4 group-hover:translate-x-0">
-                          <button
-                            className={`w-full sm:w-auto shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm ${isLive ? 'bg-success text-white hover:bg-success/90' : 'bg-white text-primary border border-primary/20 hover:border-primary hover:bg-primary/5'}`}
-                            onClick={() => navigate(`/ta/monitor/${s.id}`)}
-                          >
-                            <PlayCircle className={`w-4 h-4 ${isLive ? 'text-white' : 'text-primary'}`} />
-                            {isLive ? 'Monitor Now' : 'Enter Room'}
-                          </button>
+                        <button
+                          className={`shrink-0 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center p-2 rounded-xl ${isLive ? 'bg-success text-white hover:bg-success/90' : 'bg-surface-high text-primary hover:bg-primary hover:text-white'}`}
+                          onClick={() => navigate(`/ta/monitor/${s.id}`)}
+                          title={isLive ? 'Monitor Now' : 'Enter Room'}
+                        >
+                          <PlayCircle className="w-5 h-5" />
+                        </button>
+                      )}
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-sm text-ink-secondary mt-2">
+                      {scheduledDate && (
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-surface-high flex items-center justify-center"><Calendar className="w-3.5 h-3.5 text-primary" /></div>
+                          <span className="font-medium text-ink-primary truncate">{scheduledDate.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
                       )}
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-surface-high flex items-center justify-center"><Clock className="w-3.5 h-3.5 text-primary" /></div>
+                        <span className="font-medium text-ink-primary truncate">{s.duration_minutes} min</span>
+                      </div>
+                      {(s.lab_batch || s.class_name) && (
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-surface-high flex items-center justify-center"><Users className="w-3.5 h-3.5 text-primary" /></div>
+                          <span className="font-medium text-ink-primary truncate">{s.class_name}{s.lab_batch ? ` / ${s.lab_batch}` : ''}</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="mt-auto pt-4 border-t border-border/50 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-100 to-indigo-50 text-indigo-700 flex items-center justify-center text-xs font-bold border border-indigo-200">
+                        {s.users?.first_name?.[0]}{s.users?.last_name?.[0]}
+                      </div>
+                      <p className="text-sm font-medium text-ink-secondary flex-1 truncate">Prof. {s.users?.first_name} {s.users?.last_name}</p>
                     </div>
                   </div>
                 );

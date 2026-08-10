@@ -259,12 +259,40 @@ router.get('/teacher/students/:studentId', requireAuth, requireRole(['teacher', 
 
     if (subErr) throw subErr;
 
+    // Get all assignments created by the teacher
+    const myAssignmentIds = await getTeacherAssignmentIds(teacherId);
+    
+    // Get all submission IDs for these assignments
+    const mySubmissionIds = (submissions || []).map(s => s.id);
+
+    // Get all viva sessions for the teacher (either created by them or for their assignments)
+    // For simplicity, checking if teacher_id is this teacher, or if submission belongs to their assignment
+    const { data: myVivas } = await supabase
+      .from('viva_sessions')
+      .select('id, teacher_id, submission_id');
+      
+    // Filter vivas that belong to this teacher (either teacher_id matches or it's linked to their submission)
+    const myVivaIds = (myVivas || [])
+      .filter(v => v.teacher_id === teacherId || mySubmissionIds.includes(v.submission_id))
+      .map(v => v.id);
+
+    // Combine valid reference IDs
+    const validReferenceIds = [...myAssignmentIds, ...mySubmissionIds, ...myVivaIds];
+
     // 3. Fetch security logs for this student
-    const { data: securityLogs, error: logErr } = await supabase
+    let securityLogsQuery = supabase
       .from('security_logs')
       .select('*')
       .eq('user_id', studentId)
-      .order('timestamp', { ascending: false });
+      .order('created_at', { ascending: false });
+
+    if (validReferenceIds.length > 0) {
+      securityLogsQuery = securityLogsQuery.in('reference_id', validReferenceIds);
+    } else {
+      securityLogsQuery = securityLogsQuery.eq('reference_id', '00000000-0000-0000-0000-000000000000'); // Force empty if no references
+    }
+
+    const { data: securityLogs, error: logErr } = await securityLogsQuery;
 
     let safeLogs = securityLogs || [];
     if (logErr && (logErr.code === '42P01' || logErr.message?.includes('does not exist'))) {

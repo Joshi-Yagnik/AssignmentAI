@@ -13,7 +13,7 @@ const checkVivaSessions = async () => {
     // 1. Find sessions that need to be started or ended
     const { data: sessions, error } = await supabaseAdmin
       .from('viva_exam_sessions')
-      .select('id, status, scheduled_at, duration_minutes, title')
+      .select('id, status, scheduled_at, duration_minutes, title, teacher_id')
       .in('status', ['scheduled', 'live'])
       .not('scheduled_at', 'is', null);
 
@@ -21,6 +21,34 @@ const checkVivaSessions = async () => {
       console.error('[Viva Scheduler] Error fetching sessions:', error.message);
       return;
     }
+
+    const updateLegacyStatus = async (session, newStatus) => {
+      try {
+        const { data: templates } = await supabaseAdmin
+          .from('viva_sessions')
+          .select('id, transcript')
+          .eq('teacher_id', session.teacher_id)
+          .is('submission_id', null);
+
+        if (templates) {
+          for (const t of templates) {
+            try {
+              const meta = JSON.parse(t.transcript || '{}');
+              if (meta.title === session.title && !meta._parent_session_id) {
+                await supabaseAdmin.from('viva_sessions').update({ status: newStatus }).eq('id', t.id);
+                if (newStatus === 'live') {
+                  io.to(t.id).emit('viva_status_changed', { status: 'live' });
+                } else if (newStatus === 'completed') {
+                  io.to(t.id).emit('viva_ended', { message: 'The exam time has concluded.' });
+                }
+              }
+            } catch(e) {}
+          }
+        }
+      } catch(e) {
+        console.error('[Viva Scheduler] Failed to sync legacy status', e.message);
+      }
+    };
 
     for (const session of sessions) {
       const scheduledAt = new Date(session.scheduled_at);
@@ -32,6 +60,7 @@ const checkVivaSessions = async () => {
         console.log(`[Viva Scheduler] Starting session ${session.title}`);
         await supabaseAdmin.from('viva_exam_sessions').update({ status: 'live' }).eq('id', session.id);
         io.to(session.id).emit('viva_status_changed', { status: 'live' });
+        await updateLegacyStatus(session, 'live');
       }
 
       // CASE B: Live -> 5 min Warning
@@ -49,6 +78,7 @@ const checkVivaSessions = async () => {
         await supabaseAdmin.from('viva_exam_sessions').update({ status: 'ended' }).eq('id', session.id);
         io.to(session.id).emit('viva_ended', { message: 'The exam time has concluded.' });
         warningSent.delete(session.id); // clean up memory
+        await updateLegacyStatus(session, 'completed');
       }
     }
   } catch (err) {
