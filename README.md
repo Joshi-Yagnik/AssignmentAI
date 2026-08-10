@@ -266,12 +266,14 @@ Ensure your Redis instance is accessible and all `.env` variables are configured
 
 ---
 
-## 🌟 Mentors & Guidance
+## Acknowledgements
 
-We would like to express our special thanks to our mentors for their invaluable guidance and support throughout the development of this project:
+We extend our sincere gratitude to our mentors for their expert guidance, continuous support, and invaluable insights throughout the development of this platform:
 
-> 👨‍🏫 **Manan D Thakker**  
-> 👨‍🏫 **Hiten M Sadani**
+- **Manan D. Thakker**
+- **Hiten M. Sadani**
+
+Their technical expertise and mentorship were instrumental in shaping AssignmentAI.
 
 ---
 
