@@ -122,20 +122,10 @@ async function callGrok(prompt, model, temperature) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main exported grading function
+// Sub-steps for grading pipeline
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Grade a single submission.
- *
- * @param {string}   submissionId   - UUID of the submission to grade
- * @param {Function} onProgress     - optional async fn(pct) e.g. job.updateProgress
- * @returns {{ submissionId, studentId, finalScore }}
- */
-async function gradeSubmission(submissionId, onProgress = async () => {}) {
-  console.log(`[GradingService] Starting grading for submission ${submissionId}`);
-
-  // ── Fetch AI config ───────────────────────────────────────────────────────
+async function fetchAIConfig() {
   const { data: configData, error: configErr } = await supabaseAdmin
     .from('system_config')
     .select('value')
@@ -145,8 +135,12 @@ async function gradeSubmission(submissionId, onProgress = async () => {}) {
   if (configErr && configErr.code !== 'PGRST116') {
     throw new Error(`Failed to fetch AI configuration: ${configErr.message}`);
   }
+  return configData?.value || null;
+}
 
-  const aiConfig = configData?.value || {
+async function getActiveAIConfig() {
+  const customConfig = await fetchAIConfig();
+  const config = customConfig || {
     primary_model: 'grok-3',
     temperature:   0.2,
     is_active:     true,
@@ -186,13 +180,13 @@ Respond ONLY with valid JSON in this exact schema:
 }`,
   };
 
-  if (aiConfig.is_active === false) {
+  if (config.is_active === false) {
     throw new Error('AI Engine is globally disabled.');
   }
+  return config;
+}
 
-  await onProgress(5);
-
-  // ── 1. Fetch submission + assignment ──────────────────────────────────────
+async function fetchSubmissionData(submissionId) {
   const { data: submission, error: subErr } = await supabaseAdmin
     .from('submissions')
     .select('*, assignments(title, max_marks, ai_strictness, question_pdf_url, answer_key_pdf_url, description)')
@@ -202,68 +196,51 @@ Respond ONLY with valid JSON in this exact schema:
   if (subErr || !submission) {
     throw new Error(`Could not fetch submission ${submissionId}: ${subErr?.message}`);
   }
-
-  const assignment = submission.assignments;
-
-  if (!submission.file_url) throw new Error(`Submission ${submissionId} has no file_url`);
-  if (!assignment.answer_key_pdf_url) {
-    console.warn('[GradingService] No answer_key_pdf_url — using assignment description as key');
+  if (!submission.file_url) {
+    throw new Error(`Submission ${submissionId} has no file_url`);
   }
+  return submission;
+}
 
-  await onProgress(15);
-
-  // ── 2. Download files ─────────────────────────────────────────────────────
-  console.log('[GradingService] Downloading submission file...');
+async function downloadRequiredFiles(submission, assignment) {
+  console.log('[GradingService] Downloading files...');
   const submissionBuffer = await downloadBuffer('submissions', submission.file_url);
 
   let questionBuffer = null;
   if (assignment.question_pdf_url) {
-    console.log('[GradingService] Downloading question paper PDF...');
     questionBuffer = await downloadBuffer('question-papers', assignment.question_pdf_url);
   }
 
   let answerKeyBuffer = null;
   if (assignment.answer_key_pdf_url) {
-    console.log('[GradingService] Downloading answer key PDF...');
     answerKeyBuffer = await downloadBuffer('answer-keys', assignment.answer_key_pdf_url);
+  } else {
+    console.warn('[GradingService] No answer_key_pdf_url — using assignment description as key');
   }
 
-  await onProgress(30);
+  return { submissionBuffer, questionBuffer, answerKeyBuffer };
+}
 
-  // ── 3. Extract text ───────────────────────────────────────────────────────
-  console.log('[GradingService] Extracting text from submission...');
-  const submissionText = await extractText(submissionBuffer, submission.file_url);
+async function extractTexts(buffers, urls, assignment) {
+  console.log('[GradingService] Extracting text...');
+  const submissionText = await extractText(buffers.submissionBuffer, urls.submissionUrl);
 
-  const questionText = questionBuffer
-    ? await extractText(questionBuffer, assignment.question_pdf_url)
+  const questionText = buffers.questionBuffer
+    ? await extractText(buffers.questionBuffer, urls.questionUrl)
     : (assignment.description || 'No question paper provided.');
 
-  const answerKeyText = answerKeyBuffer
-    ? await extractText(answerKeyBuffer, assignment.answer_key_pdf_url)
+  const answerKeyText = buffers.answerKeyBuffer
+    ? await extractText(buffers.answerKeyBuffer, urls.answerKeyUrl)
     : 'No answer key provided. Grade based on general academic standards and the question paper context.';
 
   if (!submissionText || submissionText.length < 5) {
     throw new Error('Could not extract any readable text from the student submission');
   }
 
-  await onProgress(55);
+  return { submissionText, questionText, answerKeyText };
+}
 
-  // ── 4. Call Grok ──────────────────────────────────────────────────────────
-  console.log('[GradingService] Calling Grok API...');
-  const prompt   = buildPrompt({
-    basePrompt:     aiConfig.system_prompt,
-    questionText,
-    answerKeyText,
-    submissionText,
-    maxMarks:       assignment.max_marks || 100,
-    aiStrictness:   assignment.ai_strictness || 50,
-  });
-  const aiResult = await callGrok(prompt, aiConfig.primary_model, aiConfig.temperature);
-  console.log(`[GradingService] Grok responded — score: ${aiResult.final_score}/${aiResult.max_score}`);
-
-  await onProgress(80);
-
-  // ── 5. Persist AI report ──────────────────────────────────────────────────
+async function saveGradingReport(submissionId, aiResult, submissionText) {
   const { error: upsertErr } = await supabaseAdmin
     .from('ai_reports')
     .upsert(
@@ -292,28 +269,87 @@ Respond ONLY with valid JSON in this exact schema:
 
   if (upsertErr) throw new Error(`Failed to save AI report: ${upsertErr.message}`);
 
-  // ── 6. Mark submission as graded ──────────────────────────────────────────
   await supabaseAdmin
     .from('submissions')
     .update({ status: 'graded' })
     .eq('id', submissionId);
+}
 
-  await onProgress(100);
-  console.log(`[GradingService] ✓ Grading complete for ${submissionId}`);
-
-  // ── 7. Emit real-time notification to student ─────────────────────────────
+function notifyStudent(submissionId, studentId, finalScore) {
   try {
     const io = socketManager.getIO();
-    if (submission.student_id) {
-      io.to(`user_${submission.student_id}`).emit('grading_complete', {
+    if (studentId) {
+      io.to(`user_${studentId}`).emit('grading_complete', {
         submission_id: submissionId,
-        score:         aiResult.final_score,
+        score:         finalScore,
         message:       'AI Grading is complete for your assignment!',
       });
     }
   } catch (err) {
     console.error('[GradingService] Failed to emit socket event:', err.message);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main exported grading function
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Grade a single submission.
+ *
+ * @param {string}   submissionId   - UUID of the submission to grade
+ * @param {Function} onProgress     - optional async fn(pct) e.g. job.updateProgress
+ * @returns {{ submissionId, studentId, finalScore }}
+ */
+async function gradeSubmission(submissionId, onProgress = async () => {}) {
+  console.log(`[GradingService] Starting grading for submission ${submissionId}`);
+
+  // 1. Fetch AI config
+  const aiConfig = await getActiveAIConfig();
+  await onProgress(5);
+
+  // 2. Fetch submission data
+  const submission = await fetchSubmissionData(submissionId);
+  const assignment = submission.assignments;
+  await onProgress(15);
+
+  // 3. Download files
+  const buffers = await downloadRequiredFiles(submission, assignment);
+  await onProgress(30);
+
+  // 4. Extract text
+  const { submissionText, questionText, answerKeyText } = await extractTexts(
+    buffers,
+    {
+      submissionUrl: submission.file_url,
+      questionUrl: assignment.question_pdf_url,
+      answerKeyUrl: assignment.answer_key_pdf_url,
+    },
+    assignment
+  );
+  await onProgress(55);
+
+  // 5. Call Grok AI
+  console.log('[GradingService] Calling Grok API...');
+  const prompt = buildPrompt({
+    basePrompt:     aiConfig.system_prompt,
+    questionText,
+    answerKeyText,
+    submissionText,
+    maxMarks:       assignment.max_marks || 100,
+    aiStrictness:   assignment.ai_strictness || 50,
+  });
+  const aiResult = await callGrok(prompt, aiConfig.primary_model, aiConfig.temperature);
+  console.log(`[GradingService] Grok responded — score: ${aiResult.final_score}/${aiResult.max_score}`);
+  await onProgress(80);
+
+  // 6. Save results
+  await saveGradingReport(submissionId, aiResult, submissionText);
+  await onProgress(100);
+  console.log(`[GradingService] ✓ Grading complete for ${submissionId}`);
+
+  // 7. Notify student
+  notifyStudent(submissionId, submission.student_id, aiResult.final_score);
 
   return { submissionId, studentId: submission.student_id, finalScore: aiResult.final_score };
 }

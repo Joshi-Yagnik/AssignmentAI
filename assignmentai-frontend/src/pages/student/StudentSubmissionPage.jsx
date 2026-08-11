@@ -187,8 +187,8 @@ export default function StudentSubmissionPage() {
   };
 
   // Build the accept string from assignment.allowed_formats
-  const acceptAttr = assignment?.allowed_formats?.join(',') || '.pdf,.docx,.doc,.png,.jpg,.jpeg';
-  const formatLabels = assignment?.allowed_formats?.map(f => f.replace('.', '').toUpperCase()).join(', ') || 'PDF, DOCX, PNG, JPG';
+  const acceptAttr = '*/*';
+  const formatLabels = 'Any Format';
 
   const score         = _aiReport?.final_score;
 

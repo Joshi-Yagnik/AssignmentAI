@@ -105,8 +105,7 @@ async function ensureStorageBuckets() {
   for (const bucket of buckets) {
     const { error } = await supabaseAdmin.storage.createBucket(bucket.name, {
       public: bucket.public,
-      allowedMimeTypes: ['application/pdf'],
-      fileSizeLimit: 20971520, // 20 MB
+      fileSizeLimit: 52428800, // 50 MB
     });
     if (error && !error.message.includes('already exists')) {
       console.error(`[Storage] Failed to create bucket "${bucket.name}":`, error.message);

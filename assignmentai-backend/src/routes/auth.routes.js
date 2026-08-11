@@ -39,6 +39,10 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ error: 'Invalid role. Must be admin, teacher, student, or ta.' });
     }
 
+    if (normalizedRole === 'admin') {
+      return res.status(403).json({ error: 'Admin access is restricted. Use the official admin credentials to sign in.' });
+    }
+
     if (password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters.' });
     }

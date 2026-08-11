@@ -266,6 +266,14 @@ router.post('/bulk', ...adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'Role must be teacher or student' });
     }
 
+    // Fetch default institute_id for auto-creating departments
+    const { data: adminUser } = await supabase.from('users').select('institute_id').eq('id', req.user.id).single();
+    let defaultInstId = adminUser?.institute_id;
+    if (!defaultInstId) {
+      const { data: inst } = await supabase.from('institutes').select('id').limit(1).maybeSingle();
+      if (inst) defaultInstId = inst.id;
+    }
+
     // Pre-load all departments once — avoid one DB round-trip per row
     const { data: allDepts } = await supabase
       .from('departments')
@@ -310,7 +318,11 @@ router.post('/bulk', ...adminOnly, async (req, res) => {
             if (!deptByCode[deptCode]) {
               const { data: newDept, error: deptError } = await supabase
                 .from('departments')
-                .insert([{ name: deptCode, code: deptCode }])
+                .insert([{ 
+                  name: deptCode, 
+                  code: deptCode,
+                  ...(defaultInstId ? { institute_id: defaultInstId } : {})
+                }])
                 .select('id, code')
                 .single();
                 
