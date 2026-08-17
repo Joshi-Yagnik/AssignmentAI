@@ -406,7 +406,7 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
     // Get session details (for score_policy, lab_batch, class_name)
     let { data: session, error: sErr } = await supabaseAdmin
       .from('viva_exam_sessions')
-      .select('id, title, status, score_policy, lab_batch, class_name, ta_id, scheduled_at')
+      .select('id, title, status, score_policy, lab_batch, class_name, ta_id, teacher_id, scheduled_at')
       .eq('id', sessionId)
       .maybeSingle();
 
@@ -423,7 +423,7 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
         
         if (legacyTitle) {
           const { data: examSession } = await supabaseAdmin.from('viva_exam_sessions')
-            .select('id, title, status, score_policy, lab_batch, class_name, ta_id, scheduled_at')
+            .select('id, title, status, score_policy, lab_batch, class_name, ta_id, teacher_id, scheduled_at')
             .eq('title', legacyTitle)
             .eq('teacher_id', legacySession.teacher_id)
             .order('created_at', { ascending: false })
@@ -436,6 +436,11 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
 
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
+    // Use the RESOLVED exam session ID for all downstream queries.
+    // If the teacher navigated via a legacy viva_sessions ID, `sessionId` would be wrong
+    // for TA scores (stored under viva_exam_sessions.id) and for student row matching.
+    const examSessionId = session.id;
+
     // Get all students in this session's lab_batch/class
     let studentQuery = supabaseAdmin.from('users')
       .select('id, first_name, last_name, email, enrollment_number, class_name, lab_batch')
@@ -444,24 +449,34 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
     if (session.lab_batch) studentQuery = studentQuery.eq('lab_batch', session.lab_batch);
     const { data: students } = await studentQuery;
 
-    // Get TA scores for this session
+    // Get TA scores — always use the resolved exam session ID
     const { data: taScores } = await supabaseAdmin
       .from('ta_viva_scores')
       .select('student_id, ta_score, notes')
-      .eq('session_id', sessionId);
+      .eq('session_id', examSessionId);
 
-    // Get AI scores from viva_answers (average per student)
-    const { data: vivaAnswers } = await supabaseAdmin
-      .from('viva_answers')
-      .select('student_id, question_index, answer')
-      .eq('session_id', sessionId);
-
-    // Also check old viva_sessions for AI report AND result_declared status
+    // Also check old viva_sessions for AI report AND result_declared status.
+    // Student rows store _exam_session_id (viva_exam_sessions.id) OR _parent_session_id (viva_sessions template id).
+    // We match against the resolved examSessionId AND the original sessionId param (which may be a legacy template ID)
+    // so that both old and new student participation rows are found.
+    // We also fetch teacher_id to support fallback title-based matching.
     const { data: legacySessions } = await supabaseAdmin
       .from('viva_sessions')
-      .select('id, student_id, ai_report, result_declared, final_score, transcript')
+      .select('id, student_id, teacher_id, ai_report, result_declared, final_score, transcript')
       .is('submission_id', null)
-      .neq('student_id', null);
+      .not('student_id', 'is', null);
+
+    // Get all legacy template session IDs that have the same title+teacher as this exam session.
+    // This lets us match student rows that joined via old template IDs before _exam_session_id was introduced.
+    const templateIdsForThisExam = new Set();
+    (legacySessions || []).forEach(ls => {
+      try {
+        const meta = JSON.parse(ls.transcript || '{}');
+        if (!meta._parent_session_id && meta.title === session.title && ls.teacher_id === session.teacher_id) {
+          templateIdsForThisExam.add(ls.id);
+        }
+      } catch {}
+    });
 
     const taScoreMap = {};
     (taScores || []).forEach(ts => { taScoreMap[ts.student_id] = ts; });
@@ -474,18 +489,65 @@ router.get('/sessions/:id/grading-queue', requireAuth, requireRole(['teacher', '
         let belongsToThisSession = false;
         try {
           const meta = JSON.parse(ls.transcript || '{}');
-          belongsToThisSession = meta._exam_session_id === sessionId || meta._parent_session_id === sessionId;
+          // Match by exam session ID (new style) OR by legacy parent session template ID.
+          // Also check against the original sessionId param in case a legacy template ID was passed.
+          // Additionally, match rows whose _parent_session_id is any template for the same exam title+teacher.
+          belongsToThisSession =
+            meta._exam_session_id === examSessionId ||
+            meta._exam_session_id === sessionId ||
+            meta._parent_session_id === sessionId ||
+            meta._parent_session_id === examSessionId ||
+            (meta._parent_session_id && templateIdsForThisExam.has(meta._parent_session_id));
         } catch(e) {}
 
         if (belongsToThisSession) {
-          sessionIdMap[ls.student_id] = ls.id;
-          resultDeclaredMap[ls.student_id] = ls.result_declared || false;
+          // Keep the row with the highest AI score if a student has multiple matching rows
+          const existingAI = aiScoreMap[ls.student_id];
+          let newAI = null;
           if (ls.ai_report) {
             const report = typeof ls.ai_report === 'string' ? JSON.parse(ls.ai_report) : ls.ai_report;
-            aiScoreMap[ls.student_id] = (report?.overall_score || report?.total_score) ?? null;
+            newAI = (report?.overall_score || report?.total_score) ?? null;
+          }
+
+          // Prefer rows that have an AI report over those that don't
+          if (!sessionIdMap[ls.student_id] || (newAI !== null && (existingAI === null || existingAI === undefined))) {
+            sessionIdMap[ls.student_id] = ls.id;
+            resultDeclaredMap[ls.student_id] = ls.result_declared || false;
+            if (newAI !== null) aiScoreMap[ls.student_id] = newAI;
           }
         }
       }
+    });
+
+    // --- Fallback: title-based AI score matching ---
+    // If a student still has no AI score, check if they have any completed viva_sessions row
+    // with an ai_report whose transcript title matches the exam session title and teacher_id matches.
+    // This covers the case where the original template session was deleted, breaking parent_session_id lookup.
+    const studentIds = new Set((students || []).map(s => s.id));
+    (legacySessions || []).forEach(ls => {
+      if (!ls.student_id || !studentIds.has(ls.student_id)) return;
+      if (!ls.ai_report) return;
+      if (aiScoreMap[ls.student_id] !== undefined && aiScoreMap[ls.student_id] !== null) return; // already found
+      try {
+        const meta = JSON.parse(ls.transcript || '{}');
+        // Only match student participation rows (have _parent_session_id) with same title and teacher
+        if (
+          meta._parent_session_id &&
+          meta.title?.trim() === session.title?.trim() &&
+          ls.teacher_id === session.teacher_id
+        ) {
+          const report = typeof ls.ai_report === 'string' ? JSON.parse(ls.ai_report) : ls.ai_report;
+          const score = (report?.overall_score || report?.total_score) ?? null;
+          if (score !== null) {
+            aiScoreMap[ls.student_id] = score;
+            // Only set sessionIdMap if not already set by primary match
+            if (!sessionIdMap[ls.student_id]) {
+              sessionIdMap[ls.student_id] = ls.id;
+              resultDeclaredMap[ls.student_id] = ls.result_declared || false;
+            }
+          }
+        }
+      } catch {}
     });
 
     const queue = (students || []).map(student => {

@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
+const swaggerUi = require('swagger-ui-express');
+const swaggerFile = require('./swagger-output.json');
 
 const authRoutes = require('./routes/auth.routes');
 const assignmentRoutes = require('./routes/assignment.routes');
@@ -47,6 +49,9 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/viva', vivaRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/requests', requestsRoutes);
+
+// Swagger Documentation Route
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerFile));
 
 // Health check
 app.get('/health', (req, res) => {
