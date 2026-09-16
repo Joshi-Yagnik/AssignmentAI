@@ -7,7 +7,7 @@ import io from 'socket.io-client';
 import {
   Users, AlertTriangle, MessageSquare, Clock,
   CheckCircle2, Send, Eye, EyeOff, Star, Video, VideoOff,
-  Flag, ShieldAlert, ShieldCheck, Shield, Mic, MicOff, X
+  Flag, ShieldAlert, ShieldCheck, Shield, Mic, MicOff, X, Volume2, VolumeX
 } from 'lucide-react';
 
 // Warning type icons and labels
@@ -45,6 +45,7 @@ export default function TAMonitorPage() {
   const [liveStreams, setLiveStreams] = useState({});
   const [flaggedAnswers, setFlaggedAnswers] = useState({}); // { socketId: [{ index, content, note }] }
   const [warningEvents, setWarningEvents] = useState({}); // { socketId: [{ type, time }] }
+  const [unmutedStreams, setUnmutedStreams] = useState({}); // { streamKey: boolean }
   const socketRef = useRef(null);
   const peerConnectionsRef = useRef({});
   const liveVideoRef = useRef(null);
@@ -390,13 +391,25 @@ export default function TAMonitorPage() {
                     {/* Camera Feed Area */}
                     <div className="relative bg-surface-high aspect-video">
                       {stream ? (
-                        <video
-                          autoPlay
-                          playsInline
-                          muted
-                          className="w-full h-full object-cover"
-                          ref={el => { if (el && stream) el.srcObject = stream; }}
-                        />
+                        <>
+                          <video
+                            autoPlay
+                            playsInline
+                            muted={!unmutedStreams[streamKey]}
+                            className="w-full h-full object-cover"
+                            ref={el => { if (el && stream) el.srcObject = stream; }}
+                          />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setUnmutedStreams(prev => ({ ...prev, [streamKey]: !prev[streamKey] }));
+                            }}
+                            className="absolute bottom-2 left-2 z-10 p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/80 backdrop-blur-sm transition-colors border border-white/10"
+                            title={unmutedStreams[streamKey] ? "Mute student" : "Listen to student"}
+                          >
+                            {unmutedStreams[streamKey] ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4 opacity-70" />}
+                          </button>
+                        </>
                       ) : (
                         <div className="absolute inset-0 flex flex-col items-center justify-center text-ink-muted bg-surface/50 gap-2">
                           <VideoOff className="w-8 h-8 opacity-40 mb-1" />
@@ -624,10 +637,27 @@ export default function TAMonitorPage() {
                     </div>
                     <div className="flex gap-2 mt-2">
                       <button
-                        onClick={() => setSelectedStudent(null)}
-                        className="btn btn-secondary flex-1 shadow-sm"
+                        onClick={() => {
+                          if (window.confirm("Are you sure you want to stop this student's Viva? This will force submit their current progress.")) {
+                            if (socketRef.current) {
+                              socketRef.current.emit('terminate_student_viva', {
+                                sessionId,
+                                targetStudentId: selected.studentId || selected.socketId
+                              });
+                            }
+                            setSelectedStudent(null);
+                            toast({ type: 'info', title: 'Viva stopped for ' + selected.name });
+                          }
+                        }}
+                        className="btn bg-danger/10 text-danger hover:bg-danger/20 border border-danger/20 flex-1 shadow-sm text-xs px-1"
                       >
-                        Close (Grade Later)
+                        Stop Viva
+                      </button>
+                      <button
+                        onClick={() => setSelectedStudent(null)}
+                        className="btn btn-secondary flex-1 shadow-sm px-1 text-xs"
+                      >
+                        Grade Later
                       </button>
                       <button
                         onClick={() => submitScore(selected)}
@@ -637,10 +667,10 @@ export default function TAMonitorPage() {
                           || scores[selected.socketId]?.score == null 
                           || scores[selected.socketId]?.score === ''
                         }
-                        className="btn btn-primary flex-1 shadow-md shadow-primary/20"
+                        className="btn btn-primary flex-1 shadow-md shadow-primary/20 px-2 text-xs"
                       >
-                        {submitting ? 'Submitting...' : 'Submit Score'}
-                        {!submitting && <Send className="w-4 h-4 ml-1.5 inline" />}
+                        {submitting ? 'Submitting...' : 'Submit'}
+                        {!submitting && <Send className="w-3 h-3 ml-1 inline" />}
                       </button>
                     </div>
                   </div>

@@ -54,7 +54,7 @@ router.get('/sessions', requireAuth, async (req, res) => {
       const stBatch = stUser?.lab_batch || null;
 
       // 2. Fetch valid exam sessions for this student
-      let examQuery = supabaseAdmin.from('viva_exam_sessions').select('title, teacher_id, class_name, lab_batch');
+      let examQuery = supabaseAdmin.from('viva_exam_sessions').select('title, teacher_id, class_name, lab_batch').neq('status', 'deleted');
       const { data: validExams } = await examQuery;
       
       const allowedExams = (validExams || []).filter(ex => {
@@ -72,6 +72,7 @@ router.get('/sessions', requireAuth, async (req, res) => {
           users!viva_sessions_teacher_id_fkey(first_name, last_name, email)
         `)
         .is('submission_id', null)
+        .neq('status', 'deleted')
         .order('scheduled_time', { ascending: false });
       if (e1) throw e1;
 
@@ -388,6 +389,7 @@ router.get('/ta/sessions', requireAuth, requireRole(['ta']), async (req, res) =>
         users!viva_exam_sessions_teacher_id_fkey(first_name, last_name, email)
       `)
       .eq('ta_id', req.user.id)
+      .neq('status', 'deleted')
       .order('scheduled_at', { ascending: false });
 
     if (error) throw error;
@@ -799,20 +801,20 @@ router.delete('/sessions/:id', requireAuth, requireRole(['teacher', 'admin']), a
     // We can fetch the session title before deleting, so we can also try to delete the matched viva_exam_sessions row
     const { data: legacySession } = await supabaseAdmin.from('viva_sessions').select('transcript, teacher_id').eq('id', id).maybeSingle();
 
-    // Delete from viva_sessions
+    // Soft delete viva_sessions
     const { error } = await supabaseAdmin
       .from('viva_sessions')
-      .delete()
+      .update({ status: 'deleted' })
       .eq('id', id);
     if (error) throw error;
 
-    // Try to delete corresponding viva_exam_sessions row if possible
+    // Try to soft delete corresponding viva_exam_sessions row if possible
     if (legacySession) {
       try {
         const meta = JSON.parse(legacySession.transcript || '{}');
         if (meta.title) {
           await supabaseAdmin.from('viva_exam_sessions')
-            .delete()
+            .update({ status: 'deleted' })
             .eq('title', meta.title)
             .eq('teacher_id', legacySession.teacher_id);
         }
@@ -1022,7 +1024,7 @@ router.post('/sessions/:id/next-question', requireAuth, requireRole(['student'])
 // ─── POST evaluate viva session (AI Grading) ─────────────────────────────────
 router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), async (req, res) => {
   try {
-    const { transcriptMessages } = req.body;
+    const { transcriptMessages, terminatedByTA } = req.body;
     
     // Fetch session details
     const { data: session, error } = await supabaseAdmin
@@ -1043,6 +1045,10 @@ router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), asy
     
     // Attach the actual chat transcript to the report so the student can view it
     report.transcript = transcriptMessages;
+
+    if (terminatedByTA) {
+      report.terminated_by_ta = true;
+    }
 
     // Save report to DB and mark ended
     const { data: updated, error: updateErr } = await supabaseAdmin

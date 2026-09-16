@@ -79,6 +79,14 @@ module.exports = function(io) {
       });
     });
 
+    // TA forcibly terminates student viva
+    socket.on('terminate_student_viva', (data) => {
+      console.log(`TA terminated viva for student ${data.targetStudentId} in session ${data.sessionId}`);
+      io.to(data.sessionId).emit('viva_terminated_by_ta', {
+        targetStudentId: data.targetStudentId
+      });
+    });
+
     // Teacher broadcasts session start to all students in the room
     socket.on('start_session', (data) => {
       console.log(`Teacher started session: ${data.sessionId}`);

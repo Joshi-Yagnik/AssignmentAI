@@ -59,9 +59,10 @@ export async function getNextVivaQuestion(sessionId, transcriptMessages, current
 }
 
 /** Evaluate viva session */
-export async function evaluateVivaSession(sessionId, transcriptMessages) {
+export async function evaluateVivaSession(sessionId, transcriptMessages, terminatedByTA = false) {
   const { data } = await api.post(`/viva/sessions/${sessionId}/evaluate`, {
-    transcriptMessages
+    transcriptMessages,
+    terminatedByTA
   });
   return data;
 }

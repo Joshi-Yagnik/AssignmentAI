@@ -195,20 +195,24 @@ export default function TeacherVivaPage() {
                         </button>
                       </>
                     )}
-                    <button
-                      onClick={() => navigate(`/teacher/viva/grading/${s.id}`)}
-                      className="btn btn-ghost btn-sm flex items-center gap-1 text-primary"
-                      title="Grading Queue (AI + TA)"
-                    >
-                      <BarChart2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(s.id, meta.title)}
-                      className="btn btn-ghost btn-sm text-danger hover:bg-danger/10"
-                      title="Delete Session"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {s.status !== 'deleted' && (
+                      <button
+                        onClick={() => navigate(`/teacher/viva/grading/${s.id}`)}
+                        className="btn btn-ghost btn-sm flex items-center gap-1 text-primary"
+                        title="Grading Queue (AI + TA)"
+                      >
+                        <BarChart2 className="w-4 h-4" />
+                      </button>
+                    )}
+                    {s.status !== 'deleted' && (
+                      <button
+                        onClick={() => handleDelete(s.id, meta.title)}
+                        className="btn btn-ghost btn-sm text-danger hover:bg-danger/10"
+                        title="Delete Session"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );

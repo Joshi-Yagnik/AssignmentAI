@@ -13,8 +13,15 @@ export const getAssignmentById = (id) =>
 // ── TEACHER: Assignments ─────────────────────────────────────────────────────
 
 /** Fetch all assignments (Admins see all, Teachers see their own) */
-export const getAssignments = () =>
-  api.get('/assignments').then(r => r.data);
+export async function getAssignments() {
+  const { data } = await api.get('/assignments');
+  return data;
+}
+
+export async function getAssignmentStats(id) {
+  const { data } = await api.get(`/assignments/${id}/stats`);
+  return data;
+}
 
 /** Create a new assignment (JSON payload — PDFs uploaded separately via storage) */
 export const createAssignment = (body) =>

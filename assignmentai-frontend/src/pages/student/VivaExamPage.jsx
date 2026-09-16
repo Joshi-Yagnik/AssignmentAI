@@ -63,6 +63,7 @@ export default function VivaExamPage() {
   const peerConnectionsRef = useRef({}); // { viewerSocketId: RTCPeerConnection }
   
   const [shouldAutoEnd, setShouldAutoEnd] = useState(false);
+  const [terminatedByTA, setTerminatedByTA] = useState(false);
 
   // Proctoring Hook Integration
   const { warnings, faceStatus } = useProctoring({
@@ -181,6 +182,14 @@ export default function VivaExamPage() {
     socketRef.current.on('viva_ended', (data) => {
       toast({ type: 'info', title: 'Exam Concluded', message: 'The exam time is over. Submitting your answers...' });
       setShouldAutoEnd(true);
+    });
+
+    socketRef.current.on('viva_terminated_by_ta', (data) => {
+      if (user?.id && data.targetStudentId === user.id) {
+        toast({ type: 'error', title: 'Viva Stopped', message: 'TA has stopped your Viva due to suspected policy violation.' });
+        setTerminatedByTA(true);
+        setShouldAutoEnd(true);
+      }
     });
 
     // ── WebRTC: Respond to stream requests from TA / Teacher ──────────────────
@@ -387,7 +396,7 @@ export default function VivaExamPage() {
 
   const handleEvaluate = async (finalMessages) => {
     try {
-      await evaluateVivaSession(sessionId, finalMessages);
+      await evaluateVivaSession(sessionId, finalMessages, terminatedByTA);
       navigate(`/student/viva/report/${sessionId}`);
     } catch (err) {
       toast({ type: 'error', title: 'Failed to generate report' });

@@ -4,7 +4,7 @@ import TopBar from '../../components/shared/TopBar';
 import { useToast } from '../../components/shared/Toast';
 import api from '../../services/api';
 import io from 'socket.io-client';
-import { MessageSquare, Bot, CheckCircle2, Clock, Award } from 'lucide-react';
+import { MessageSquare, Bot, CheckCircle2, Clock, Award, ShieldAlert } from 'lucide-react';
 
 const SOCKET_URL = import.meta.env.VITE_API_BASE_URL
   ? import.meta.env.VITE_API_BASE_URL.replace('/api', '')
@@ -73,34 +73,47 @@ export default function VivaReportPage() {
 
       <main className="p-4 md:p-6 max-w-3xl mx-auto w-full flex flex-col gap-6">
 
-        {/* Thank You Banner */}
-        <div className="card bg-gradient-to-br from-primary-950 to-primary-900 text-white border-none shadow-xl p-8 flex flex-col items-center text-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
-            <CheckCircle2 className="w-8 h-8 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold mb-2">Viva Exam Completed!</h1>
-            <p className="text-primary-200 text-sm leading-relaxed max-w-md">
-              Thank you for completing your viva exam. Your responses have been recorded and are being reviewed by your professor.
-            </p>
-          </div>
-
-          {/* Result area */}
-          {declaredScore != null ? (
-            <div className="mt-2 bg-white/15 rounded-2xl px-8 py-5 flex flex-col items-center gap-1 border border-white/20">
-              <Award className="w-6 h-6 text-yellow-300 mb-1" />
-              <span className="text-4xl font-black text-white">{declaredScore}<span className="text-xl text-primary-200">/100</span></span>
-              <span className="text-sm font-semibold text-primary-200 uppercase tracking-wider">Final Score</span>
+        {report.terminated_by_ta ? (
+          <div className="card bg-gradient-to-br from-danger-900 to-danger text-white border-none shadow-xl p-8 flex flex-col items-center text-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
+              <ShieldAlert className="w-8 h-8 text-white" />
             </div>
-          ) : (
-            <div className="mt-2 bg-white/10 rounded-2xl px-8 py-4 flex items-center gap-3 border border-white/20">
-              <Clock className="w-5 h-5 text-primary-300 animate-pulse" />
-              <p className="text-primary-100 text-sm font-medium">
-                Your result will be declared by your professor soon.
+            <div>
+              <h1 className="text-2xl font-bold mb-2">Viva Terminated</h1>
+              <p className="text-white/90 text-sm leading-relaxed max-w-md font-medium">
+                Your viva was stopped by the Teaching Assistant due to suspected policy violation. Please meet your teacher or professor.
               </p>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="card bg-gradient-to-br from-primary-950 to-primary-900 text-white border-none shadow-xl p-8 flex flex-col items-center text-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center">
+              <CheckCircle2 className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold mb-2">Viva Exam Completed!</h1>
+              <p className="text-primary-200 text-sm leading-relaxed max-w-md">
+                Thank you for completing your viva exam. Your responses have been recorded and are being reviewed by your professor.
+              </p>
+            </div>
+
+            {/* Result area */}
+            {declaredScore != null ? (
+              <div className="mt-2 bg-white/15 rounded-2xl px-8 py-5 flex flex-col items-center gap-1 border border-white/20">
+                <Award className="w-6 h-6 text-yellow-300 mb-1" />
+                <span className="text-4xl font-black text-white">{declaredScore}<span className="text-xl text-primary-200">/100</span></span>
+                <span className="text-sm font-semibold text-primary-200 uppercase tracking-wider">Final Score</span>
+              </div>
+            ) : (
+              <div className="mt-2 bg-white/10 rounded-2xl px-8 py-4 flex items-center gap-3 border border-white/20">
+                <Clock className="w-5 h-5 text-primary-300 animate-pulse" />
+                <p className="text-primary-100 text-sm font-medium">
+                  Your result will be declared by your professor soon.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Transcript — Questions & Answers only */}
         <div className="card">
