@@ -275,6 +275,7 @@ export default function DeployAssignmentPage() {
     if (!form.title.trim())    errs.title    = 'Title is required';
     if (!form.subject_id)      errs.subject_id = 'Subject is required';
     if (!form.deadline)        errs.deadline = 'Deadline is required';
+    if (targetClasses.length === 0) errs.target_classes = 'At least one target class is required';
 
     if (Object.keys(errs).length > 0) {
       setErrors(errs);

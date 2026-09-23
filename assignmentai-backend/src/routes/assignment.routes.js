@@ -202,8 +202,8 @@ router.post('/', ...teacherOrAdmin, async (req, res) => {
       target_classes
     } = req.body;
 
-    if (!title || !subject_id || !deadline) {
-      return res.status(400).json({ error: 'title, subject_id, and deadline are required' });
+    if (!title || !subject_id || !deadline || !target_classes || target_classes.length === 0) {
+      return res.status(400).json({ error: 'title, subject_id, deadline, and target_classes are required' });
     }
 
     const { data, error } = await supabase

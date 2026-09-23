@@ -5,7 +5,8 @@
 
 -- Add target_classes column as an array of strings (TEXT[]) to store multiple class names
 ALTER TABLE assignments
-  ADD COLUMN IF NOT EXISTS target_classes TEXT[];
+  ADD COLUMN IF NOT EXISTS target_classes TEXT[],
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc', now());
 
 -- Migrate existing assignments:
 -- For backwards compatibility, if an assignment was created by a teacher, 
