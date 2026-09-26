@@ -213,9 +213,10 @@ export default function StudentSubmissionPage() {
         }
 
         setUploading(true);
+        const sanitizedFileName = uploadFile.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
         const { signedUrl, path } = await getUploadUrl({
           bucket: 'submissions',
-          filename: `${Date.now()}_${uploadFile.name}`,
+          filename: `${Date.now()}_${sanitizedFileName}`,
           contentType: uploadFile.type || 'application/octet-stream',
         });
 

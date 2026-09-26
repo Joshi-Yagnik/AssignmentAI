@@ -51,6 +51,8 @@ export default function VivaExamPage() {
   
   // Media State
   const [micOn, setMicOn]     = useState(true);
+  const micOnRef = useRef(true);
+  useEffect(() => { micOnRef.current = micOn; }, [micOn]);
   const [camOn, setCamOn]     = useState(true);
   const [soundOn, setSoundOn] = useState(true);
   const [streamError, setStreamError] = useState(false);
@@ -280,6 +282,14 @@ export default function VivaExamPage() {
           setAnswer(prev => prev + (prev ? ' ' : '') + finalTranscript);
         }
       };
+
+      recognition.onend = () => {
+        if (micOnRef.current) {
+          try {
+            recognition.start();
+          } catch (e) {}
+        }
+      };
       
       recognition.start();
       recognitionRef.current = recognition;
@@ -287,7 +297,10 @@ export default function VivaExamPage() {
 
     return () => {
       if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
-      if (recognitionRef.current) recognitionRef.current.stop();
+      if (recognitionRef.current) {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+      }
       if (socketRef.current) socketRef.current.disconnect();
       // Stop ElevenLabs audio playback
       if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }

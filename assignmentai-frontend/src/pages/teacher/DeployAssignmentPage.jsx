@@ -253,9 +253,10 @@ export default function DeployAssignmentPage() {
     setUploading(true);
     setProgress(0);
     try {
+      const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
       const { signedUrl, path } = await getUploadUrl({
         bucket,
-        filename: `${Date.now()}_${file.name}`,
+        filename: `${Date.now()}_${sanitizedFileName}`,
         contentType: file.type || 'application/pdf',
       });
       await uploadFileToStorage(signedUrl, file, setProgress);

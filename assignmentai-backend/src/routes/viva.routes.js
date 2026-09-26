@@ -1050,10 +1050,17 @@ router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), asy
       report.terminated_by_ta = true;
     }
 
-    // Save report to DB and mark ended
+    const reportScore = report.overall_score || report.total_score || 0;
+
+    // Save report to DB, mark ended, and auto-declare result for faster feedback
     const { data: updated, error: updateErr } = await supabaseAdmin
       .from('viva_sessions')
-      .update({ ai_report: report, status: 'completed' })
+      .update({ 
+        ai_report: report, 
+        status: 'completed',
+        result_declared: true,
+        final_score: reportScore
+      })
       .eq('id', req.params.id)
       .select()
       .single();
@@ -1098,6 +1105,15 @@ router.post('/sessions/:id/evaluate', requireAuth, requireRole(['student']), asy
       // Emit to teacher's personal notification room
       if (session.teacher_id) {
         io.to(`user_${session.teacher_id}`).emit('student_viva_graded', gradePayload);
+      }
+
+      // Emit result_declared to the student so they see it immediately
+      if (session.student_id) {
+        io.to(`user_${session.student_id}`).emit('result_declared', {
+          sessionId: req.params.id,
+          finalScore: reportScore,
+          subject: session.subject,
+        });
       }
     } catch (socketErr) {
       console.error('[Viva /evaluate] Socket notify failed:', socketErr.message);
