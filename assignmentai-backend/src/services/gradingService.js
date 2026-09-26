@@ -165,7 +165,7 @@ Total marks available: {{maxMarks}}
 
 Respond ONLY with valid JSON in this exact schema:
 {
-  "final_score": <number>,
+  "final_score": <number (must exactly equal sum of all breakdown scores)>,
   "max_score": <number>,
   "feedback_summary": "<string>",
   "grammar_score": <0-100 or null>,
@@ -241,6 +241,12 @@ async function extractTexts(buffers, urls, assignment) {
 }
 
 async function saveGradingReport(submissionId, aiResult, submissionText) {
+  // Recalculate final score to prevent LLM math hallucination
+  if (Array.isArray(aiResult.breakdown) && aiResult.breakdown.length > 0) {
+    const calculatedScore = aiResult.breakdown.reduce((sum, item) => sum + (Number(item.score) || 0), 0);
+    aiResult.final_score = calculatedScore;
+  }
+
   const { error: upsertErr } = await supabaseAdmin
     .from('ai_reports')
     .upsert(
