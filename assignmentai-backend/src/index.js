@@ -48,8 +48,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200
 }));
-// Explicitly handle OPTIONS pre-flight for all routes
-app.options('/*', cors());
 app.use(express.json());
 
 // Routes
