@@ -49,7 +49,7 @@ app.use(cors({
   optionsSuccessStatus: 200
 }));
 // Explicitly handle OPTIONS pre-flight for all routes
-app.options('*', cors());
+app.options('/*', cors());
 app.use(express.json());
 
 // Routes
