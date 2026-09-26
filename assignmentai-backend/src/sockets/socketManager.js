@@ -5,9 +5,6 @@ module.exports = {
     ioInstance = io;
   },
   getIO: () => {
-    if (!ioInstance) {
-      throw new Error("Socket.io not initialized!");
-    }
-    return ioInstance;
+    return ioInstance; // returns null if not yet initialized
   }
 };

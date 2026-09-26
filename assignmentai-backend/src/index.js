@@ -4,9 +4,8 @@ require('dotenv').config();
 const REQUIRED_ENV = ['JWT_SECRET', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
 const missing = REQUIRED_ENV.filter(key => !process.env[key]);
 if (missing.length > 0) {
-  console.error(`\n✗ Missing required environment variables: ${missing.join(', ')}`);
-  console.error('  Please set them in your .env file and restart.\n');
-  process.exit(1);
+  console.warn(`\n⚠ WARNING: Missing environment variables: ${missing.join(', ')}`);
+  console.warn('  Some features may not work. Set them in your .env or hosting dashboard.\n');
 }
 
 const express = require('express');
