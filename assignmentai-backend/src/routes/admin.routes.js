@@ -17,7 +17,7 @@ router.get('/institutes', ...adminOnly, async (req, res) => {
       .order('name');
     if (error) throw error;
     res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] GET institutes:', err.message); res.status(500).json({ error: err.message }); }
 });
 
 router.post('/institutes', ...adminOnly, async (req, res) => {
@@ -29,7 +29,7 @@ router.post('/institutes', ...adminOnly, async (req, res) => {
       .select().single();
     if (error) throw error;
     res.status(201).json(data);
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] POST institutes:', err.message); res.status(400).json({ error: err.message }); }
 });
 
 router.put('/institutes/:id', ...adminOnly, async (req, res) => {
@@ -42,7 +42,7 @@ router.put('/institutes/:id', ...adminOnly, async (req, res) => {
       .select().single();
     if (error) throw error;
     res.json(data);
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] PUT institutes:', err.message); res.status(400).json({ error: err.message }); }
 });
 
 router.delete('/institutes/:id', ...adminOnly, async (req, res) => {
@@ -53,7 +53,7 @@ router.delete('/institutes/:id', ...adminOnly, async (req, res) => {
       .eq('id', req.params.id);
     if (error) throw error;
     res.json({ message: 'Institute deleted' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] DELETE institutes:', err.message); res.status(500).json({ error: err.message }); }
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ router.get('/departments', ...adminOnly, async (req, res) => {
       .order('name');
     if (error) throw error;
     res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] GET departments:', err.message); res.status(500).json({ error: err.message }); }
 });
 
 router.post('/departments', ...adminOnly, async (req, res) => {
@@ -79,7 +79,7 @@ router.post('/departments', ...adminOnly, async (req, res) => {
       .select('*, institutes(name, code)').single();
     if (error) throw error;
     res.status(201).json(data);
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] POST departments:', err.message); res.status(400).json({ error: err.message }); }
 });
 
 router.put('/departments/:id', ...adminOnly, async (req, res) => {
@@ -92,7 +92,7 @@ router.put('/departments/:id', ...adminOnly, async (req, res) => {
       .select('*, institutes(name, code)').single();
     if (error) throw error;
     res.json(data);
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] PUT departments:', err.message); res.status(400).json({ error: err.message }); }
 });
 
 router.delete('/departments/:id', ...adminOnly, async (req, res) => {
@@ -103,7 +103,7 @@ router.delete('/departments/:id', ...adminOnly, async (req, res) => {
       .eq('id', req.params.id);
     if (error) throw error;
     res.json({ message: 'Department deleted' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] DELETE departments:', err.message); res.status(500).json({ error: err.message }); }
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ router.get('/subjects', ...teacherOrAdmin, async (req, res) => {
       .order('name');
     if (error) throw error;
     res.json(data);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] GET subjects:', err.message); res.status(500).json({ error: err.message }); }
 });
 
 router.post('/subjects', ...adminOnly, async (req, res) => {
@@ -131,7 +131,7 @@ router.post('/subjects', ...adminOnly, async (req, res) => {
       .select('*, departments(name, code, institutes(name))').single();
     if (error) throw error;
     res.status(201).json(data);
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] POST subjects:', err.message); res.status(400).json({ error: err.message }); }
 });
 
 router.put('/subjects/:id', ...adminOnly, async (req, res) => {
@@ -144,7 +144,7 @@ router.put('/subjects/:id', ...adminOnly, async (req, res) => {
       .select('*, departments(name, code, institutes(name))').single();
     if (error) throw error;
     res.json(data);
-  } catch (err) { res.status(400).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] PUT subjects:', err.message); res.status(400).json({ error: err.message }); }
 });
 
 router.delete('/subjects/:id', ...adminOnly, async (req, res) => {
@@ -155,7 +155,7 @@ router.delete('/subjects/:id', ...adminOnly, async (req, res) => {
       .eq('id', req.params.id);
     if (error) throw error;
     res.json({ message: 'Subject deleted' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { console.error('[Admin] DELETE subjects:', err.message); res.status(500).json({ error: err.message }); }
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -376,7 +376,7 @@ router.post('/users/bulk', ...adminOnly, async (req, res) => {
           email: u.email.toLowerCase(),
           password_hash,
           role: role || u.role || 'student',
-          department_id: u.department_id || null
+          department_id: department_id || null
         };
 
         const { data, error } = await supabase

@@ -1,4 +1,14 @@
 require('dotenv').config();
+
+// ── Startup env validation ────────────────────────────────────────────────────
+const REQUIRED_ENV = ['JWT_SECRET', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+const missing = REQUIRED_ENV.filter(key => !process.env[key]);
+if (missing.length > 0) {
+  console.error(`\n✗ Missing required environment variables: ${missing.join(', ')}`);
+  console.error('  Please set them in your .env file and restart.\n');
+  process.exit(1);
+}
+
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
@@ -39,6 +49,8 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200
 }));
+// Explicitly handle OPTIONS pre-flight for all routes
+app.options('*', cors());
 app.use(express.json());
 
 // Routes

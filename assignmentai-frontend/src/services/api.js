@@ -30,9 +30,15 @@ function attachAuthInterceptor(instance) {
     (response) => response,
     (error) => {
       if (error.response?.status === 401) {
-        localStorage.removeItem('aaai_token');
-        localStorage.removeItem('aaai_user');
-        window.dispatchEvent(new CustomEvent('aaai:unauthorized'));
+        // Don't trigger logout for auth endpoints — a 401 on login
+        // means "wrong password", not "expired token".
+        const url = error.config?.url || '';
+        const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/signup');
+        if (!isAuthEndpoint) {
+          localStorage.removeItem('aaai_token');
+          localStorage.removeItem('aaai_user');
+          window.dispatchEvent(new CustomEvent('aaai:unauthorized'));
+        }
       }
       return Promise.reject(error);
     },
