@@ -269,10 +269,6 @@ async function saveGradingReport(submissionId, aiResult, submissionText) {
 
   if (upsertErr) throw new Error(`Failed to save AI report: ${upsertErr.message}`);
 
-  await supabaseAdmin
-    .from('submissions')
-    .update({ status: 'graded' })
-    .eq('id', submissionId);
 }
 
 function notifyStudent(submissionId, studentId, finalScore) {
