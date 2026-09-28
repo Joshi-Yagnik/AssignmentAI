@@ -801,20 +801,20 @@ router.delete('/sessions/:id', requireAuth, requireRole(['teacher', 'admin']), a
     // We can fetch the session title before deleting, so we can also try to delete the matched viva_exam_sessions row
     const { data: legacySession } = await supabaseAdmin.from('viva_sessions').select('transcript, teacher_id').eq('id', id).maybeSingle();
 
-    // Soft delete viva_sessions
+    // HARD delete viva_sessions
     const { error } = await supabaseAdmin
       .from('viva_sessions')
-      .update({ status: 'deleted' })
+      .delete()
       .eq('id', id);
     if (error) throw error;
 
-    // Try to soft delete corresponding viva_exam_sessions row if possible
+    // Try to hard delete corresponding viva_exam_sessions row if possible
     if (legacySession) {
       try {
         const meta = JSON.parse(legacySession.transcript || '{}');
         if (meta.title) {
           await supabaseAdmin.from('viva_exam_sessions')
-            .update({ status: 'deleted' })
+            .delete()
             .eq('title', meta.title)
             .eq('teacher_id', legacySession.teacher_id);
         }

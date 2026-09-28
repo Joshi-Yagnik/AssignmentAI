@@ -6,9 +6,10 @@ import api from '../../services/api';
 import io from 'socket.io-client';
 import { MessageSquare, Bot, CheckCircle2, Clock, Award, ShieldAlert } from 'lucide-react';
 
-const SOCKET_URL = import.meta.env.VITE_API_BASE_URL
-  ? import.meta.env.VITE_API_BASE_URL.replace('/api', '')
-  : 'http://localhost:5000';
+const hostname = window.location.hostname;
+const SOCKET_URL = import.meta.env.VITE_API_BASE_URL 
+  ? import.meta.env.VITE_API_BASE_URL.replace('/api', '') 
+  : (hostname === 'localhost' || hostname === '127.0.0.1' ? 'http://localhost:5000' : `http://${hostname}:5000`);
 
 export default function VivaReportPage() {
   const { sessionId } = useParams();

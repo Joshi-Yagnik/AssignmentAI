@@ -25,9 +25,10 @@ function getRisk(warnings) {
   return               { label: 'High Risk', bg: 'bg-danger/10',    text: 'text-danger',   icon: ShieldAlert };
 }
 
-const SOCKET_URL = import.meta.env.VITE_API_BASE_URL
-  ? import.meta.env.VITE_API_BASE_URL.replace('/api', '')
-  : 'http://localhost:5000';
+const hostname = window.location.hostname;
+const SOCKET_URL = import.meta.env.VITE_API_BASE_URL 
+  ? import.meta.env.VITE_API_BASE_URL.replace('/api', '') 
+  : (hostname === 'localhost' || hostname === '127.0.0.1' ? 'http://localhost:5000' : `http://${hostname}:5000`);
 
 const ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 

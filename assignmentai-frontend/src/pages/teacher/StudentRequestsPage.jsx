@@ -210,7 +210,11 @@ export default function StudentRequestsPage() {
     load();
 
     // Real-time Socket.IO updates
-    const socket = io(BASE_URL, { transports: ['websocket'] });
+    const hostname = window.location.hostname;
+    const SOCKET_URL = import.meta.env.VITE_API_BASE_URL 
+      ? import.meta.env.VITE_API_BASE_URL.replace('/api', '') 
+      : (hostname === 'localhost' || hostname === '127.0.0.1' ? 'http://localhost:5000' : `http://${hostname}:5000`);
+    const socket = io(SOCKET_URL, { transports: ['websocket'] });
     socketRef.current = socket;
 
     socket.on('request:new', (req) => {
