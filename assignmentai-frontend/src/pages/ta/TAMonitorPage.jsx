@@ -98,23 +98,25 @@ export default function TAMonitorPage() {
     // Join the exam session room (viva_exam_sessions ID)
     socketRef.current.emit('join_viva', { sessionId, role: 'ta' });
 
+    const resolveKey = (prev, data) => {
+      return Object.keys(prev).find(k => 
+        (data.socketId && prev[k].socketId === data.socketId) ||
+        (data.studentId && prev[k].studentId === data.studentId) ||
+        (data.sessionId && (prev[k].dbId === data.sessionId || k === data.sessionId))
+      ) || data.socketId || data.sessionId;
+    };
+
     // Student joined (or re-announced)
     socketRef.current.on('student_joined', (data) => {
       setActiveStudents(prev => {
-        const existingKey = Object.keys(prev).find(k => 
-          prev[k].studentId === data.studentId || 
-          prev[k].dbId === data.sessionId || 
-          k === data.sessionId
-        );
-        const keyToUse = existingKey || data.socketId;
-
+        const key = resolveKey(prev, data);
         return {
           ...prev,
-          [keyToUse]: {
-            ...(prev[existingKey] || prev[data.socketId] || {}),
+          [key]: {
+            ...(prev[key] || {}),
             socketId: data.socketId,
-            studentId: data.studentId || (prev[existingKey]?.studentId),
-            name: data.studentName || prev[existingKey]?.name || 'Student',
+            studentId: data.studentId || prev[key]?.studentId,
+            name: data.studentName || prev[key]?.name || 'Student',
             online: true,
             status: 'active'
           }
@@ -124,15 +126,15 @@ export default function TAMonitorPage() {
 
     // Live transcript (submitted)
     socketRef.current.on('teacher_transcript_live', (data) => {
-      const key = data.socketId || data.sessionId;
       setActiveStudents(prev => {
+        const key = resolveKey(prev, data);
         let parsed = [];
         try { parsed = JSON.parse(data.transcript || '[]'); } catch {}
         return {
           ...prev,
           [key]: {
             ...(prev[key] || { warnings: 0, name: data.studentName || 'Student' }),
-            socketId: key,
+            socketId: data.socketId || key,
             studentId: data.studentId || prev[key]?.studentId,
             transcript: parsed,
             liveDraft: '', // clear draft on submit
@@ -144,13 +146,13 @@ export default function TAMonitorPage() {
 
     // Live draft (typing/speaking)
     socketRef.current.on('teacher_transcript_live_draft', (data) => {
-      const key = data.socketId || data.sessionId;
       setActiveStudents(prev => {
+        const key = resolveKey(prev, data);
         return {
           ...prev,
           [key]: {
             ...(prev[key] || { warnings: 0, name: data.studentName || 'Student' }),
-            socketId: key,
+            socketId: data.socketId || key,
             studentId: data.studentId || prev[key]?.studentId,
             liveDraft: data.draft,
             lastActive: new Date(),
@@ -161,13 +163,13 @@ export default function TAMonitorPage() {
 
     // Warnings
     socketRef.current.on('teacher_viva_warning', (data) => {
-      const key = data.socketId || data.sessionId;
       setActiveStudents(prev => {
+        const key = resolveKey(prev, data);
         return {
           ...prev,
           [key]: {
             ...(prev[key] || { warnings: 0, name: data.studentName || 'Student' }),
-            socketId: key,
+            socketId: data.socketId || key,
             studentId: data.studentId || prev[key]?.studentId,
             warnings: ((prev[key]?.warnings) || 0) + 1,
             warningType: data.type || 'default',
@@ -175,13 +177,16 @@ export default function TAMonitorPage() {
         };
       });
       // Push to warning timeline
-      setWarningEvents(prev => ({
-        ...prev,
-        [key]: [
-          ...(prev[key] || []),
-          { type: data.type || 'default', time: new Date() }
-        ]
-      }));
+      setWarningEvents(prev => {
+        const key = resolveKey(prev, data);
+        return {
+          ...prev,
+          [key]: [
+            ...(prev[key] || []),
+            { type: data.type || 'default', time: new Date() }
+          ]
+        };
+      });
     });
 
     // AI grading completed — show score on student card instantly
@@ -309,7 +314,9 @@ export default function TAMonitorPage() {
   };
 
   const studentList = Object.values(activeStudents);
-  const selected = selectedStudent ? activeStudents[selectedStudent] : null;
+  const selected = selectedStudent 
+    ? studentList.find(s => s.socketId === selectedStudent || s.studentId === selectedStudent || s.dbId === selectedStudent) || activeStudents[selectedStudent] 
+    : null;
 
   // Flag a specific Q&A answer
   const toggleFlag = (socketId, msgIndex, content) => {

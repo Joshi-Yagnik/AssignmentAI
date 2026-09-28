@@ -64,20 +64,14 @@ export default function TeacherVivaMonitorPage() {
     // Student joined (or re-announced)
     socketRef.current.on('student_joined', (data) => {
       setActiveStudents(prev => {
-        const existingKey = Object.keys(prev).find(k => 
-          prev[k].studentId === data.studentId || 
-          prev[k].dbId === data.sessionId || 
-          k === data.sessionId
-        );
-        const keyToUse = existingKey || data.socketId;
-
+        const key = resolveKey(prev, data);
         return {
           ...prev,
-          [keyToUse]: {
-            ...(prev[keyToUse] || { transcript: 'Waiting for student to speak...', warnings: 0, violations: [], joinedAt: new Date(data.joinedAt) }),
+          [key]: {
+            ...(prev[key] || { transcript: 'Waiting for student to speak...', warnings: 0, violations: [], joinedAt: new Date(data.joinedAt) }),
             socketId: data.socketId,
-            studentId: data.studentId,
-            name: data.studentName || prev[keyToUse]?.name || `Student (${data.socketId.slice(0, 6)})`,
+            studentId: data.studentId || prev[key]?.studentId,
+            name: data.studentName || prev[key]?.name || `Student (${data.socketId.slice(0, 6)})`,
             lastActive: new Date(),
           }
         };
@@ -87,45 +81,49 @@ export default function TeacherVivaMonitorPage() {
 
       // Live transcript update (submitted answers) — keyed by socketId
       socketRef.current.on('teacher_transcript_live', (data) => {
-        const key = data.socketId || data.sessionId;
-        setActiveStudents(prev => ({
+      setActiveStudents(prev => {
+        const key = resolveKey(prev, data);
+        return {
           ...prev,
           [key]: {
             ...prev[key],
-            socketId: key,
-            name: data.studentName || prev[key]?.name || `Student (${key.slice(0, 6)})`,
+            socketId: data.socketId || key,
+            name: data.studentName || prev[key]?.name || `Student (${(data.socketId || key).slice(0, 6)})`,
             transcript: data.transcript,
-            liveDraft: '', // clear draft on submit
+            liveDraft: '',
             lastActive: new Date(),
           }
-        }));
+        };
       });
+    });
   
       // Live draft update (typing/speaking) — keyed by socketId
       socketRef.current.on('teacher_transcript_live_draft', (data) => {
-        const key = data.socketId || data.sessionId;
-        setActiveStudents(prev => ({
+      setActiveStudents(prev => {
+        const key = resolveKey(prev, data);
+        return {
           ...prev,
           [key]: {
             ...prev[key],
-            socketId: key,
-            name: data.studentName || prev[key]?.name || `Student (${key.slice(0, 6)})`,
+            socketId: data.socketId || key,
+            name: data.studentName || prev[key]?.name || `Student (${(data.socketId || key).slice(0, 6)})`,
             liveDraft: data.draft,
             lastActive: new Date(),
           }
-        }));
+        };
       });
+    });
 
     // Security warning — keyed by socketId
     socketRef.current.on('teacher_viva_warning', (data) => {
-      const key = data.socketId || data.sessionId;
       setActiveStudents(prev => {
+        const key = resolveKey(prev, data);
         const student = prev[key] || { name: data.studentName || 'Unknown', warnings: 0, violations: [], transcript: '' };
         return {
           ...prev,
           [key]: { 
             ...student, 
-            socketId: key,
+            socketId: data.socketId || key,
             warnings: (student.warnings || 0) + 1,
             violations: [...(student.violations || []), data.type],
             lastActive: new Date(),
@@ -137,16 +135,18 @@ export default function TeacherVivaMonitorPage() {
 
     // Student ended their exam
     socketRef.current.on('teacher_viva_ended', (data) => {
-      const key = data.socketId || data.sessionId;
-      setActiveStudents(prev => ({
-        ...prev,
-        [key]: {
-          ...prev[key],
-          socketId: key,
+      setActiveStudents(prev => {
+        const key = resolveKey(prev, data);
+        return {
+          ...prev,
+          [key]: {
+            ...prev[key],
+            socketId: data.socketId || key,
           status: 'ended',
-          name: data.studentName || prev[key]?.name || 'Student',
-        }
-      }));
+            name: data.studentName || prev[key]?.name || 'Student',
+          }
+        };
+      });
       toast({ type: 'info', title: 'Student Finished', message: `${data.studentName || 'A student'} has ended their session.` });
     });
 
